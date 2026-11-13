@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import Sidebar from "./components/Sidebar";
 import OverviewView from "./components/OverviewView";
+import AnalyticsView from "./components/AnalyticsView";
 import TransactionStream from "./components/TransactionStream";
 import GraphCanvas from "./components/GraphCanvas";
 import SimulateView from "./components/SimulateView";
@@ -26,6 +27,7 @@ export default function App() {
   const [graphData, setGraphData] = useState({ nodes: [], edges: [], summary: {} });
   const [accountRisks, setAccountRisks] = useState([]);
   const [backendConnected, setBackendConnected] = useState(false);
+  const [frozenAccounts, setFrozenAccounts] = useState(new Set());
 
   const [activeTab, setActiveTab] = useState("overview");
   const [isSimulating, setIsSimulating] = useState(true);
@@ -41,11 +43,12 @@ export default function App() {
   }, []);
 
   // Local graph & account risk builder (used for offline fallback or instant local sync)
-  const rebuildLocalDerivedState = useCallback((currentTxns, currentAccounts) => {
+  const rebuildLocalDerivedState = useCallback((currentTxns, currentAccounts, currentFrozen = new Set()) => {
     const nodeMap = new Map();
     const accRiskMap = new Map();
 
     currentAccounts.forEach((acc) => {
+      const isFrz = currentFrozen.has(acc.id) || currentFrozen.has(acc.vpa);
       nodeMap.set(acc.id, {
         id: acc.id,
         label: acc.name,
@@ -55,7 +58,9 @@ export default function App() {
         total_received: 0,
         in_degree: 0,
         out_degree: 0,
-        node_type: "NORMAL"
+        max_risk_score: isFrz ? 100 : 0,
+        is_frozen: isFrz,
+        node_type: isFrz ? "FROZEN" : "NORMAL"
       });
     });
 
@@ -70,6 +75,7 @@ export default function App() {
       const score = Number(t.risk_score) || 0;
 
       if (!nodeMap.has(sId)) {
+        const isFrz = currentFrozen.has(sId);
         nodeMap.set(sId, {
           id: sId,
           label: t.sender_name || sId,
@@ -79,10 +85,13 @@ export default function App() {
           total_received: 0,
           in_degree: 0,
           out_degree: 0,
-          node_type: "NORMAL"
+          max_risk_score: 0,
+          is_frozen: isFrz,
+          node_type: isFrz ? "FROZEN" : "NORMAL"
         });
       }
       if (!nodeMap.has(rId)) {
+        const isFrz = currentFrozen.has(rId);
         nodeMap.set(rId, {
           id: rId,
           label: t.receiver_name || rId,
@@ -92,7 +101,9 @@ export default function App() {
           total_received: 0,
           in_degree: 0,
           out_degree: 0,
-          node_type: "NORMAL"
+          max_risk_score: 0,
+          is_frozen: isFrz,
+          node_type: isFrz ? "FROZEN" : "NORMAL"
         });
       }
 
@@ -102,6 +113,15 @@ export default function App() {
       sNode.out_degree += 1;
       rNode.total_received += amt;
       rNode.in_degree += 1;
+
+      sNode.max_risk_score = Math.max(sNode.max_risk_score || 0, score);
+      rNode.max_risk_score = Math.max(rNode.max_risk_score || 0, score);
+
+      if (currentFrozen.has(rId) || rNode.is_frozen || score >= 80) {
+        rNode.node_type = "CRITICAL_FRAUD";
+      } else if (score >= 60 && rNode.node_type === "NORMAL") {
+        rNode.node_type = "HIGH_RISK";
+      }
 
       if (t.scenario === "CIRCULAR_LAYERING") {
         sNode.node_type = "CIRCULAR_LAUNDERING";
@@ -120,8 +140,16 @@ export default function App() {
         const e = edgeMap.get(edgeKey);
         e.amount += amt;
         e.count += 1;
+        e.max_risk_score = Math.max(e.max_risk_score || 0, score);
       } else {
-        edgeMap.set(edgeKey, { source: sId, target: rId, amount: amt, count: 1, rail: t.rail });
+        edgeMap.set(edgeKey, {
+          source: sId,
+          target: rId,
+          amount: amt,
+          count: 1,
+          rail: t.rail,
+          max_risk_score: score
+        });
       }
 
       // Account-level risk scoring
@@ -281,17 +309,52 @@ export default function App() {
     if (customTxn.risk_score >= 60) {
       setFraudAlerts((prev) => [customTxn, ...prev]);
     }
+    // Auto Freeze recipient on Critical risk
+    if (customTxn.risk_score >= 80 && customTxn.receiver_account) {
+      const rec = customTxn.receiver_account;
+      setFrozenAccounts((prev) => {
+        const next = new Set(prev);
+        next.add(rec);
+        return next;
+      });
+      showToast(`Auto-Lien CrPC 91 Placed: Recipient ${rec} is legally FROZEN.`);
+    } else {
+      showToast(`Evaluated ${customTxn.txn_id} (Risk Score: ${customTxn.risk_score}/100)`);
+    }
     setSelectedTxnForXai(customTxn);
-    showToast(`Evaluated ${customTxn.txn_id} (Risk Score: ${customTxn.risk_score}/100)`);
+  };
+
+  const handleFreezeAccount = async (accId) => {
+    setFrozenAccounts((prev) => {
+      const next = new Set(prev);
+      next.add(accId);
+      return next;
+    });
+    if (backendConnected) {
+      try {
+        await fetch(`${API_BASE}/api/accounts/freeze/${accId}`, { method: "POST" });
+      } catch {}
+    }
+    showToast(`Account ${accId} placed under statutory freeze.`);
+    rebuildLocalDerivedState(transactions, accounts, new Set([...frozenAccounts, accId]));
   };
 
   const handleDispatch1930 = async (txn) => {
+    const recAcc = txn.receiver_account;
+    if (recAcc) {
+      setFrozenAccounts((prev) => {
+        const next = new Set(prev);
+        next.add(recAcc);
+        return next;
+      });
+    }
     if (backendConnected) {
       try {
         const res = await fetch(`${API_BASE}/api/compliance/1930-lien/${txn.txn_id}`, { method: "POST" });
         if (res.ok) {
           const data = await res.json();
-          showToast(`I4C 1930 Lien Dispatched: ${data.ticket.ticket_id}`);
+          showToast(`I4C 1930 Lien Dispatched: ${data.ticket.ticket_id} (Account ${recAcc} FROZEN)`);
+          await syncFromBackend();
           return;
         }
       } catch {
@@ -299,11 +362,13 @@ export default function App() {
       }
     }
     const ticket = generateI4CTicket(txn);
-    showToast(`I4C 1930 Lien Dispatched: ${ticket.ticket_id}`);
+    showToast(`I4C 1930 Lien Dispatched: ${ticket.ticket_id} (Account ${recAcc} FROZEN)`);
+    rebuildLocalDerivedState(transactions, accounts, new Set([...frozenAccounts, recAcc]));
   };
 
   const tabTitles = {
     overview: { title: "Security Overview", subtitle: "Real-time fraud monitoring, anomaly trend, and priority review queue" },
+    analytics: { title: "Fraud Analytics & Trend Intelligence", subtitle: "Forensic risk distributions, circadian threat heatmaps, and rail vulnerability metrics" },
     stream: { title: "Transaction Ledger", subtitle: "Live UPI, IMPS & RTGS stream with sub-50ms risk scoring" },
     graph: { title: "AML Network Topology", subtitle: "Directed transaction graph for circular layering & mule hub detection" },
     simulator: { title: "Threat Simulation Lab", subtitle: "Test detection models against synthetic Indian cyber-fraud patterns" },
@@ -362,6 +427,13 @@ export default function App() {
             />
           )}
 
+          {activeTab === "analytics" && (
+            <AnalyticsView
+              transactions={transactions}
+              fraudAlerts={fraudAlerts}
+            />
+          )}
+
           {activeTab === "stream" && (
             <TransactionStream
               txns={transactions}
@@ -405,6 +477,7 @@ export default function App() {
           onClose={() => setSelectedTxnForXai(null)}
           onGenerateStr={(t) => setSelectedTxnForStr(t)}
           onDispatch1930={handleDispatch1930}
+          onFreezeAccount={handleFreezeAccount}
         />
       )}
 
@@ -416,6 +489,8 @@ export default function App() {
         <CustomTxnModal
           onClose={() => setIsCustomModalOpen(false)}
           onInjectTxn={handleInjectCustomTxn}
+          accounts={accounts}
+          frozenAccountIds={frozenAccounts}
         />
       )}
     </div>

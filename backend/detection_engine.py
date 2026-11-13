@@ -52,6 +52,27 @@ class KavachDetectionEngine:
         factors = []
         score = 10  # Base normal transaction noise
 
+        # -1. Legal Enforcement: Account Freeze Check (CrPC 91 / PMLA Section 17)
+        frozen_accounts = (graph_context or {}).get("frozen_accounts", set())
+        if sender_acc in frozen_accounts or receiver_acc in frozen_accounts or txn.get("is_frozen"):
+            frozen_party = "Sender" if sender_acc in frozen_accounts else "Receiver"
+            return {
+                "txn_id": txn["txn_id"],
+                "risk_score": 100,
+                "risk_level": "BLOCKED",
+                "recommended_action": "TRANSACTION_DENIED_ACCOUNT_FROZEN",
+                "action_text": f"Transaction denied: {frozen_party} account is legally FROZEN under CrPC 91 / PMLA 17. All credits & debits blocked.",
+                "explainability": {
+                    "factors": [{
+                        "factor": "Statutory Account Lien & Freeze Enforced",
+                        "weight": 100,
+                        "description": f"Target account ({receiver_acc if frozen_party == 'Receiver' else sender_acc}) is under active seizure order from law enforcement."
+                    }],
+                    "summary_en": f"Payment denied. The {frozen_party} account is currently under legal freeze. No funds may enter or exit this account.",
+                    "summary_hi": f"Transaction radd kiya gaya. {frozen_party} account kanooni roop se freeze hai. Is khate me koi bhi rashi jama ya nikali nahi ja sakti."
+                }
+            }
+
         # 0. Graph Context: Circular Flow / Mule Hub Boost
         if graph_context:
             circular_nodes = graph_context.get("circular_nodes", set())

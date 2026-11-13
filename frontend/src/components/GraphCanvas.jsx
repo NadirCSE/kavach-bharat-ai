@@ -219,14 +219,46 @@ export default function GraphCanvas({ graphData, onSelectNode }) {
         const v = typeof edge.target === "object" ? edge.target : nodeMap.get(edge.target);
         if (!u || !v) continue;
 
-        const isRisk = u.node_type !== "NORMAL" || v.node_type !== "NORMAL";
+        const isCircularEdge = u.node_type === "CIRCULAR_LAUNDERING" && v.node_type === "CIRCULAR_LAUNDERING";
+        const isCriticalEdge =
+          u.is_frozen || v.is_frozen ||
+          u.node_type === "CRITICAL_FRAUD" || v.node_type === "CRITICAL_FRAUD" ||
+          (edge.max_risk_score && edge.max_risk_score >= 80) ||
+          edge.amount >= 100000;
+        const isRiskEdge =
+          isCriticalEdge ||
+          u.node_type === "MULE_AGGREGATOR" || v.node_type === "MULE_AGGREGATOR" ||
+          u.node_type === "HIGH_RISK" || v.node_type === "HIGH_RISK" ||
+          (edge.max_risk_score && edge.max_risk_score >= 60);
+
+        let strokeColor = "rgba(148, 163, 184, 0.4)";
+        let arrowColor = "#64748b";
+        let particleColor = "#475569";
+        let lineWidth = 1.2;
+
+        if (isCircularEdge) {
+          strokeColor = "rgba(147, 51, 234, 0.75)";
+          arrowColor = "#9333ea";
+          particleColor = "#9333ea";
+          lineWidth = 2.4;
+        } else if (isCriticalEdge) {
+          strokeColor = "rgba(225, 29, 72, 0.8)";
+          arrowColor = "#e11d48";
+          particleColor = "#e11d48";
+          lineWidth = 2.4;
+        } else if (isRiskEdge) {
+          strokeColor = "rgba(234, 88, 12, 0.7)";
+          arrowColor = "#ea580c";
+          particleColor = "#ea580c";
+          lineWidth = 1.8;
+        }
 
         // Line
         ctx.beginPath();
         ctx.moveTo(u.x, u.y);
         ctx.lineTo(v.x, v.y);
-        ctx.strokeStyle = isRisk ? "rgba(225, 29, 72, 0.45)" : "rgba(161, 161, 170, 0.45)";
-        ctx.lineWidth = isRisk ? 2.2 : 1.2;
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = lineWidth;
         ctx.stroke();
 
         // Arrowhead
@@ -240,7 +272,7 @@ export default function GraphCanvas({ graphData, onSelectNode }) {
         ctx.lineTo(ax - 8 * Math.cos(angle - Math.PI / 6), ay - 8 * Math.sin(angle - Math.PI / 6));
         ctx.lineTo(ax - 8 * Math.cos(angle + Math.PI / 6), ay - 8 * Math.sin(angle + Math.PI / 6));
         ctx.closePath();
-        ctx.fillStyle = isRisk ? "#e11d48" : "#71717a";
+        ctx.fillStyle = arrowColor;
         ctx.fill();
 
         // Flowing particles along edge
@@ -251,7 +283,7 @@ export default function GraphCanvas({ graphData, onSelectNode }) {
 
           ctx.beginPath();
           ctx.arc(px, py, 2.5, 0, Math.PI * 2);
-          ctx.fillStyle = isRisk ? "#e11d48" : "#18181b";
+          ctx.fillStyle = particleColor;
           ctx.fill();
         }
       }
@@ -259,58 +291,115 @@ export default function GraphCanvas({ graphData, onSelectNode }) {
       // 2. Draw Nodes
       for (const node of nodes) {
         const isHovered = hoveredNode && hoveredNode.id === node.id;
+        const isFrozen = Boolean(node.is_frozen || node.status === "FROZEN");
+        const isCritical = isFrozen || node.node_type === "CRITICAL_FRAUD" || (node.max_risk_score && node.max_risk_score >= 80);
         const isCircular = node.node_type === "CIRCULAR_LAUNDERING";
-        const isMule = node.node_type === "MULE_AGGREGATOR";
+        const isMule = node.node_type === "MULE_AGGREGATOR" || node.node_type === "HIGH_RISK" || (node.max_risk_score && node.max_risk_score >= 60);
+        const isMedium = !isCritical && !isCircular && !isMule && (node.max_risk_score && node.max_risk_score >= 35);
 
-        // Outer Focus Ring for Special Nodes
-        if (isCircular || isMule || isHovered) {
+        // Visual Theme Settings per category:
+        let ringGlow = isHovered ? "rgba(24, 24, 27, 0.08)" : null;
+        let circleFill = "#f0fdf4"; // default safe emerald tint
+        let circleStroke = "#10b981"; // emerald border
+        let centerTextColor = "#047857";
+        let badgeBg = "#ffffff";
+        let badgeBorder = "#cbd5e1";
+        let badgeTextColor = "#334155";
+        let badgeTag = null;
+
+        if (isFrozen) {
+          ringGlow = "rgba(153, 27, 27, 0.3)";
+          circleFill = "#fee2e2";
+          circleStroke = "#991b1b";
+          centerTextColor = "#7f1d1d";
+          badgeBg = "#fef2f2";
+          badgeBorder = "#b91c1c";
+          badgeTextColor = "#991b1b";
+          badgeTag = "FROZEN";
+        } else if (isCritical) {
+          ringGlow = "rgba(225, 29, 72, 0.25)";
+          circleFill = "#ffe4e6";
+          circleStroke = "#e11d48";
+          centerTextColor = "#9f1239";
+          badgeBg = "#fff1f2";
+          badgeBorder = "#f43f5e";
+          badgeTextColor = "#9f1239";
+          badgeTag = "CRITICAL";
+        } else if (isCircular) {
+          ringGlow = "rgba(147, 51, 234, 0.22)";
+          circleFill = "#f3e8ff";
+          circleStroke = "#9333ea";
+          centerTextColor = "#7e22ce";
+          badgeBg = "#faf5ff";
+          badgeBorder = "#c084fc";
+          badgeTextColor = "#6b21a8";
+          badgeTag = "CYCLE";
+        } else if (isMule) {
+          ringGlow = "rgba(234, 88, 12, 0.22)";
+          circleFill = "#ffedd5";
+          circleStroke = "#ea580c";
+          centerTextColor = "#c2410c";
+          badgeBg = "#fff7ed";
+          badgeBorder = "#fb923c";
+          badgeTextColor = "#9a3412";
+          badgeTag = "MULE";
+        } else if (isMedium) {
+          ringGlow = "rgba(234, 179, 8, 0.15)";
+          circleFill = "#fef9c3";
+          circleStroke = "#ca8a04";
+          centerTextColor = "#a16207";
+          badgeBg = "#fefce8";
+          badgeBorder = "#facc15";
+          badgeTextColor = "#854d0e";
+          badgeTag = "MED";
+        }
+
+        // Outer Focus Ring
+        if (ringGlow || isHovered) {
           ctx.beginPath();
           ctx.arc(node.x, node.y, node.radius + (isHovered ? 6 : 4), 0, Math.PI * 2);
-          ctx.fillStyle = isCircular
-            ? "rgba(147, 51, 234, 0.12)"
-            : isMule
-            ? "rgba(225, 29, 72, 0.12)"
-            : "rgba(24, 24, 27, 0.06)";
+          ctx.fillStyle = ringGlow || "rgba(24, 24, 27, 0.08)";
           ctx.fill();
         }
 
         // Node Circle
         ctx.beginPath();
         ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
-        ctx.fillStyle = isCircular ? "#faf5ff" : isMule ? "#fff1f2" : "#ffffff";
+        ctx.fillStyle = circleFill;
         ctx.fill();
-        ctx.lineWidth = isHovered ? 2.5 : isCircular || isMule ? 2 : 1.5;
-        ctx.strokeStyle = isCircular ? "#9333ea" : isMule ? "#e11d48" : isHovered ? "#18181b" : "#d4d4d8";
+        ctx.lineWidth = isHovered ? 2.5 : isCritical || isCircular || isMule ? 2.2 : 1.5;
+        ctx.strokeStyle = isHovered ? "#18181b" : circleStroke;
         ctx.stroke();
 
         // Bank Abbreviation in center
-        ctx.fillStyle = isCircular ? "#7e22ce" : isMule ? "#be123c" : "#18181b";
-        ctx.font = "600 10px Inter, sans-serif";
+        ctx.fillStyle = centerTextColor;
+        ctx.font = "bold 10px Inter, sans-serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         const bankCode = (node.bank || "BANK").split(" ")[0].slice(0, 4).toUpperCase();
         ctx.fillText(bankCode, node.x, node.y);
 
         // CLEAN LABEL BADGE: Drawn with its own pill background so it NEVER overlaps or blurs!
-        const labelText = node.label ? node.label.split(" ")[0] : node.id.slice(-6);
+        const baseName = node.label ? node.label.split(" ")[0] : node.id.slice(-6);
+        const labelText = badgeTag ? `${baseName} [${badgeTag}]` : baseName;
         ctx.font = "500 10px Inter, sans-serif";
         const textWidth = ctx.measureText(labelText).width;
-        const badgeW = textWidth + 10;
-        const badgeH = 16;
+        const badgeW = textWidth + 12;
+        const badgeH = 17;
         const badgeX = node.x - badgeW / 2;
         const badgeY = node.y + node.radius + 5;
 
         // Badge pill background
         ctx.beginPath();
         ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 4);
-        ctx.fillStyle = isCircular ? "#f3e8ff" : isMule ? "#ffe4e6" : "#ffffff";
+        ctx.fillStyle = badgeBg;
         ctx.fill();
         ctx.lineWidth = 1;
-        ctx.strokeStyle = isCircular ? "#d8b4fe" : isMule ? "#fecdd3" : "#e4e4e7";
+        ctx.strokeStyle = badgeBorder;
         ctx.stroke();
 
         // Badge text
-        ctx.fillStyle = isCircular ? "#6b21a8" : isMule ? "#9f1239" : "#3f3f46";
+        ctx.fillStyle = badgeTextColor;
         ctx.fillText(labelText, node.x, badgeY + badgeH / 2);
       }
 
@@ -421,13 +510,16 @@ export default function GraphCanvas({ graphData, onSelectNode }) {
           {/* Legend */}
           <div className="hidden sm:flex items-center gap-3 text-xs text-zinc-600">
             <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-white border border-zinc-300" /> Normal
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-100 border border-emerald-600" /> Normal
             </span>
             <span className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-purple-100 border border-purple-600" /> Circular Loop
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-rose-100 border border-rose-600" /> Mule Hub
+              <span className="w-2.5 h-2.5 rounded-full bg-orange-100 border border-orange-500" /> Mule Hub
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-100 border border-rose-600" /> Critical / Frozen
             </span>
           </div>
 

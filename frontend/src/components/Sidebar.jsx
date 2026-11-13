@@ -2,6 +2,7 @@ import React from "react";
 import {
   Shield,
   LayoutDashboard,
+  BarChart3,
   ListOrdered,
   Network,
   FlaskConical,
@@ -23,6 +24,7 @@ export default function Sidebar({
 }) {
   const navItems = [
     { id: "overview", label: "Overview", icon: LayoutDashboard },
+    { id: "analytics", label: "Analytics & Trends", icon: BarChart3 },
     { id: "stream", label: "Transactions", icon: ListOrdered, badge: alertCount > 0 ? alertCount : null },
     { id: "graph", label: "AML Network", icon: Network },
     { id: "simulator", label: "Threat Lab", icon: FlaskConical },

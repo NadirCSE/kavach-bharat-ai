@@ -42,9 +42,21 @@ class KavachDatabase:
                     is_senior INTEGER DEFAULT 0,
                     balance REAL DEFAULT 0.0,
                     risk_profile TEXT DEFAULT 'Normal',
+                    is_frozen INTEGER DEFAULT 0,
+                    freeze_reason TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+
+            # Ensure is_frozen column exists if table was created previously
+            try:
+                cursor.execute("ALTER TABLE accounts ADD COLUMN is_frozen INTEGER DEFAULT 0")
+            except Exception:
+                pass
+            try:
+                cursor.execute("ALTER TABLE accounts ADD COLUMN freeze_reason TEXT")
+            except Exception:
+                pass
 
             # Transactions Table
             cursor.execute("""
@@ -169,7 +181,76 @@ class KavachDatabase:
                     VALUES (?, ?, ?, 'NEW', ?)
                 """, (txn["txn_id"], int(txn.get("risk_score", 0)), txn.get("risk_level", "HIGH"), txn.get("action_text", "")))
 
+            # AUTOMATIC LEGAL FREEZE: If risk score >= 80 (Critical), directly freeze the recipient account
+            if int(txn.get("risk_score", 0)) >= 80:
+                rec_acc = txn.get("receiver_account")
+                if rec_acc:
+                    cursor.execute("""
+                        UPDATE accounts
+                        SET is_frozen = 1, risk_profile = 'FROZEN', freeze_reason = ?
+                        WHERE account_id = ?
+                    """, (f"Auto-Lien CrPC 91 on Txn {txn['txn_id']}: {txn.get('action_text', 'Critical Fraud')}", rec_acc))
+
             conn.commit()
+
+    def freeze_account(self, account_id: str, reason: str = "PMLA Sec 17 / CrPC 91 Freeze Order"):
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE accounts
+                SET is_frozen = 1, risk_profile = 'FROZEN', freeze_reason = ?
+                WHERE account_id = ?
+            """, (reason, account_id))
+            conn.commit()
+
+    def unfreeze_account(self, account_id: str):
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE accounts
+                SET is_frozen = 0, risk_profile = 'Normal', freeze_reason = NULL
+                WHERE account_id = ?
+            """, (account_id,))
+            conn.commit()
+
+    def is_account_frozen(self, account_id: str) -> bool:
+        if not account_id:
+            return False
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT is_frozen FROM accounts WHERE account_id = ?", (account_id,))
+            row = cursor.fetchone()
+            return bool(row and row["is_frozen"])
+
+    def get_frozen_account_ids(self) -> List[str]:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT account_id FROM accounts WHERE is_frozen = 1")
+            return [r["account_id"] for r in cursor.fetchall()]
+
+    def export_transactions_csv(self) -> str:
+        import csv
+        import io
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM transactions ORDER BY created_at DESC")
+            rows = cursor.fetchall()
+            output = io.StringIO()
+            writer = csv.writer(output)
+            writer.writerow([
+                "txn_id", "timestamp", "sender_account", "sender_name", "sender_vpa", "sender_bank",
+                "receiver_account", "receiver_name", "receiver_vpa", "receiver_bank",
+                "amount", "currency", "rail", "channel", "city", "remarks",
+                "scenario", "risk_score", "risk_level", "recommended_action", "action_text"
+            ])
+            for r in rows:
+                writer.writerow([
+                    r["txn_id"], r["timestamp"], r["sender_account"], r["sender_name"], r["sender_vpa"], r["sender_bank"],
+                    r["receiver_account"], r["receiver_name"], r["receiver_vpa"], r["receiver_bank"],
+                    r["amount"], r["currency"], r["rail"], r["channel"], r["city"], r["remarks"],
+                    r["scenario"], r["risk_score"], r["risk_level"], r["recommended_action"], r["action_text"]
+                ])
+            return output.getvalue()
 
     def get_recent_transactions(self, limit: int = 100) -> List[Dict[str, Any]]:
         with self._get_connection() as conn:

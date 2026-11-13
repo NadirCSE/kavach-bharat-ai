@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { formatINR } from "../data/mockEngine";
-import { Search, CheckCircle2, ShieldAlert } from "lucide-react";
+import { formatINR, exportTransactionsToCSV } from "../data/mockEngine";
+import { Search, CheckCircle2, ShieldAlert, Download, FileSpreadsheet } from "lucide-react";
 
 export default function TransactionStream({ txns, onSelectTxn }) {
   const [filter, setFilter] = useState("all");
@@ -39,25 +39,36 @@ export default function TransactionStream({ txns, onSelectTxn }) {
           />
         </div>
 
-        <div className="flex items-center bg-zinc-100 p-0.5 rounded-lg text-xs">
-          {[
-            { id: "all", label: `All (${txns.length})` },
-            { id: "fraud", label: "Flagged" },
-            { id: "critical", label: "Critical (≥80)" },
-            { id: "upi", label: "UPI" }
-          ].map((pill) => (
-            <button
-              key={pill.id}
-              onClick={() => setFilter(pill.id)}
-              className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${
-                filter === pill.id
-                  ? "bg-white text-zinc-900 font-medium shadow-xs"
-                  : "text-zinc-600 hover:text-zinc-900"
-              }`}
-            >
-              {pill.label}
-            </button>
-          ))}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center bg-zinc-100 p-0.5 rounded-lg text-xs">
+            {[
+              { id: "all", label: `All (${txns.length})` },
+              { id: "fraud", label: "Flagged" },
+              { id: "critical", label: "Critical (≥80)" },
+              { id: "upi", label: "UPI" }
+            ].map((pill) => (
+              <button
+                key={pill.id}
+                onClick={() => setFilter(pill.id)}
+                className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${
+                  filter === pill.id
+                    ? "bg-white text-zinc-900 font-medium shadow-xs"
+                    : "text-zinc-600 hover:text-zinc-900"
+                }`}
+              >
+                {pill.label}
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={() => exportTransactionsToCSV(filteredTxns)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg text-xs font-medium transition-colors shadow-xs cursor-pointer"
+            title="Download CSV ledger of transactions"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Export CSV</span>
+          </button>
         </div>
       </div>
 

@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { formatINR } from "../data/mockEngine";
 import { X, ShieldAlert, FileText, CheckCircle2, Lock } from "lucide-react";
 
-export default function XaiDrawer({ txn, onClose, onGenerateStr, onDispatch1930 }) {
+export default function XaiDrawer({ txn, onClose, onGenerateStr, onDispatch1930, onFreezeAccount }) {
   const [actionDispatched, setActionDispatched] = useState(false);
   const [accountFrozen, setAccountFrozen] = useState(false);
 
@@ -170,12 +170,15 @@ export default function XaiDrawer({ txn, onClose, onGenerateStr, onDispatch1930 
               <span>Generate STR</span>
             </button>
             <button
-              onClick={() => setAccountFrozen(true)}
+              onClick={() => {
+                setAccountFrozen(true);
+                onFreezeAccount?.(txn.receiver_account);
+              }}
               disabled={accountFrozen}
-              className="py-2 px-3 border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 rounded-lg text-xs font-medium inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+              className="py-2 px-3 border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-xs font-medium inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
             >
               <Lock className="w-3.5 h-3.5" />
-              <span>Freeze VPA</span>
+              <span>{accountFrozen ? "VPA Frozen" : "Freeze VPA / Account"}</span>
             </button>
             <button
               onClick={onClose}

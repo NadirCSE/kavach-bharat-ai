@@ -4,10 +4,12 @@ Exposes endpoints for transaction streaming, hybrid risk evaluation,
 graph analytics, scenario attack simulation, and regulatory compliance.
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
+import io
 
 from synthetic_generator import IndianBankingDataGenerator
 from detection_engine import KavachDetectionEngine
@@ -47,7 +49,12 @@ def _get_current_graph_context():
         circular_nodes.update(c)
     mules = graph_engine.detect_mule_hubs()
     mule_nodes = {m["account_id"] for m in mules if m.get("is_suspected_mule")}
-    return {"circular_nodes": circular_nodes, "mule_nodes": mule_nodes}
+    frozen_accounts = set(db.get_frozen_account_ids())
+    return {
+        "circular_nodes": circular_nodes,
+        "mule_nodes": mule_nodes,
+        "frozen_accounts": frozen_accounts
+    }
 
 
 # Pre-seed initial transactions
@@ -256,6 +263,46 @@ def get_kpis():
         "golden_hour_response_secs": 12,
         "high_risk_accounts_flagged": high_risk_accounts,
         "npci_rule_compliance_pct": 99.8
+    }
+
+
+@app.get("/api/transactions/export/csv")
+def export_transactions_csv():
+    """Generates and downloads a CSV export of all database transactions."""
+    csv_content = db.export_transactions_csv()
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=kavach_fraud_ledger_export.csv"}
+    )
+
+
+@app.get("/api/accounts/frozen")
+def get_frozen_accounts_list():
+    """Returns the list of all currently frozen/lien-restricted account IDs."""
+    return {"frozen_accounts": db.get_frozen_account_ids()}
+
+
+@app.post("/api/accounts/freeze/{account_id}")
+def freeze_account_endpoint(account_id: str, reason: Optional[str] = "PMLA Section 17 / CrPC 91 Legal Freeze"):
+    """Enforces a statutory freeze on an account."""
+    db.freeze_account(account_id, reason)
+    return {
+        "status": "ACCOUNT_FROZEN",
+        "account_id": account_id,
+        "reason": reason,
+        "message": f"Account {account_id} has been placed under statutory freeze. All inflow/outflow blocked."
+    }
+
+
+@app.post("/api/accounts/unfreeze/{account_id}")
+def unfreeze_account_endpoint(account_id: str):
+    """Releases a statutory freeze on an account."""
+    db.unfreeze_account(account_id)
+    return {
+        "status": "ACCOUNT_UNFROZEN",
+        "account_id": account_id,
+        "message": f"Account {account_id} freeze released."
     }
 
 

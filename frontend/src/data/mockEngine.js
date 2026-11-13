@@ -27,13 +27,39 @@ const SUSPICIOUS_KEYWORDS = [
 
 const HIGH_RISK_CITIES = ["Jamtara", "Mewat", "Bharatpur"];
 
-export function evaluateTransactionRules(txn) {
+export function evaluateTransactionRules(txn, context = {}) {
   const amount = Number(txn.amount) || 0;
   const rail = txn.rail || "UPI";
   const city = txn.city || "";
   const remarks = (txn.remarks || "").toLowerCase();
   const receiverVpa = (txn.receiver_vpa || "").toLowerCase();
   const scenario = txn.scenario || "LEGITIMATE";
+
+  // Check if sender or receiver account is legally FROZEN
+  const frozenAccounts = context.frozenAccounts || new Set();
+  const isSenderFrozen = frozenAccounts.has(txn.sender_account);
+  const isReceiverFrozen = frozenAccounts.has(txn.receiver_account) || txn.is_frozen;
+
+  if (isSenderFrozen || isReceiverFrozen) {
+    const role = isReceiverFrozen ? "Receiver" : "Sender";
+    const frozenAcc = isReceiverFrozen ? txn.receiver_account : txn.sender_account;
+    const frozenVpa = isReceiverFrozen ? txn.receiver_vpa : txn.sender_vpa;
+    return {
+      risk_score: 100,
+      risk_level: "BLOCKED",
+      recommended_action: "TRANSACTION_DENIED_ACCOUNT_FROZEN",
+      action_text: `Transaction blocked: ${role} account (${frozenAcc}) is legally FROZEN under CrPC 91 / PMLA 17.`,
+      explainability: {
+        factors: [{
+          factor: "Statutory Law Enforcement Freeze Active",
+          weight: 100,
+          description: `Account ${frozenAcc} (${frozenVpa || "N/A"}) is under active statutory seizure order from I4C 1930 / Cybercrime Cell. All incoming and outgoing funds are blocked.`
+        }],
+        summary_en: `Payment denied. The ${role} account is currently under legal freeze. No credits or debits permitted.`,
+        summary_hi: `Bhugtan asafal. Kanooni freeze aadesh ke tehat ${role} khate me rashi jama ya nikasi poori tarah pratibandhit hai.`
+      }
+    };
+  }
 
   const factors = [];
   let score = 8;
@@ -334,4 +360,70 @@ export function generateI4CTicket(txn) {
     amount: txn.amount,
     mandate: "IMMEDIATE_DEBIT_FREEZE_UNDER_CRPC_91"
   };
+}
+
+export function exportTransactionsToCSV(transactions) {
+  if (!transactions || transactions.length === 0) {
+    alert("No transactions available to export.");
+    return;
+  }
+
+  const headers = [
+    "Transaction ID",
+    "Timestamp",
+    "Sender Account",
+    "Sender Name",
+    "Sender VPA",
+    "Sender Bank",
+    "Receiver Account",
+    "Receiver Name",
+    "Receiver VPA",
+    "Receiver Bank",
+    "Amount (INR)",
+    "Payment Rail",
+    "City",
+    "Risk Score",
+    "Risk Level",
+    "Recommended Action",
+    "Action Details",
+    "Remarks",
+    "Scenario"
+  ];
+
+  const escapeCSV = (field) => {
+    if (field === null || field === undefined) return '""';
+    const str = String(field).replace(/"/g, '""');
+    return `"${str}"`;
+  };
+
+  const rows = transactions.map((t) => [
+    escapeCSV(t.txn_id),
+    escapeCSV(t.timestamp),
+    escapeCSV(t.sender_account),
+    escapeCSV(t.sender_name),
+    escapeCSV(t.sender_vpa),
+    escapeCSV(t.sender_bank),
+    escapeCSV(t.receiver_account),
+    escapeCSV(t.receiver_name),
+    escapeCSV(t.receiver_vpa),
+    escapeCSV(t.receiver_bank),
+    t.amount,
+    escapeCSV(t.rail),
+    escapeCSV(t.city),
+    t.risk_score,
+    escapeCSV(t.risk_level),
+    escapeCSV(t.recommended_action),
+    escapeCSV(t.action_text),
+    escapeCSV(t.remarks),
+    escapeCSV(t.scenario)
+  ].join(","));
+
+  const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows].join("\n");
+  const encodedUri = encodeURI(csvContent);
+  const link = document.createElement("a");
+  link.setAttribute("href", encodedUri);
+  link.setAttribute("download", `kavach_fraud_ledger_${new Date().toISOString().slice(0, 10)}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 }
