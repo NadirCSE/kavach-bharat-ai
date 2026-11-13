@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from "react";
-import Header from "./components/Header";
+import React, { useState, useEffect, useCallback } from "react";
+import Sidebar from "./components/Sidebar";
 import OverviewView from "./components/OverviewView";
 import TransactionStream from "./components/TransactionStream";
 import GraphCanvas from "./components/GraphCanvas";
 import SimulateView from "./components/SimulateView";
 import ComplianceView from "./components/ComplianceView";
+import MethodologyView from "./components/MethodologyView";
 import XaiDrawer from "./components/XaiDrawer";
 import StrModal from "./components/StrModal";
 import CustomTxnModal from "./components/CustomTxnModal";
@@ -16,52 +17,35 @@ import {
   generateI4CTicket
 } from "./data/mockEngine";
 
+const API_BASE = "http://127.0.0.1:8000";
+
 export default function App() {
-  const [accounts, setAccounts] = useState(INITIAL_ACCOUNTS);
+  const [accounts] = useState(INITIAL_ACCOUNTS);
   const [transactions, setTransactions] = useState([]);
   const [fraudAlerts, setFraudAlerts] = useState([]);
   const [graphData, setGraphData] = useState({ nodes: [], edges: [], summary: {} });
+  const [accountRisks, setAccountRisks] = useState([]);
+  const [backendConnected, setBackendConnected] = useState(false);
 
   const [activeTab, setActiveTab] = useState("overview");
   const [isSimulating, setIsSimulating] = useState(true);
-  const [simSpeed, setSimSpeed] = useState(2000);
 
-  // Modals & Drawers
   const [selectedTxnForXai, setSelectedTxnForXai] = useState(null);
   const [selectedTxnForStr, setSelectedTxnForStr] = useState(null);
   const [isCustomModalOpen, setIsCustomModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState(null);
 
-  // Initialize seed transactions and graph
-  useEffect(() => {
-    const seedTxns = [];
-    for (let i = 0; i < 22; i++) {
-      seedTxns.push(generateRandomNormalTxn(INITIAL_ACCOUNTS));
-    }
-    setTransactions(seedTxns);
-    rebuildGraph(seedTxns, INITIAL_ACCOUNTS);
+  const showToast = useCallback((msg) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3500);
   }, []);
 
-  // Background stream
-  useEffect(() => {
-    if (!isSimulating) return;
-
-    const interval = setInterval(() => {
-      const newTxn = generateRandomNormalTxn(accounts);
-      setTransactions(prev => {
-        const next = [newTxn, ...prev.slice(0, 120)];
-        rebuildGraph(next, accounts);
-        return next;
-      });
-    }, simSpeed);
-
-    return () => clearInterval(interval);
-  }, [isSimulating, simSpeed, accounts]);
-
-  const rebuildGraph = (currentTxns, currentAccounts) => {
+  // Local graph & account risk builder (used for offline fallback or instant local sync)
+  const rebuildLocalDerivedState = useCallback((currentTxns, currentAccounts) => {
     const nodeMap = new Map();
+    const accRiskMap = new Map();
 
-    currentAccounts.forEach(acc => {
+    currentAccounts.forEach((acc) => {
       nodeMap.set(acc.id, {
         id: acc.id,
         label: acc.name,
@@ -79,10 +63,11 @@ export default function App() {
     const circularNodes = new Set();
     const muleNodes = new Set();
 
-    currentTxns.forEach(t => {
+    currentTxns.forEach((t) => {
       const sId = t.sender_account;
       const rId = t.receiver_account;
       const amt = Number(t.amount) || 0;
+      const score = Number(t.risk_score) || 0;
 
       if (!nodeMap.has(sId)) {
         nodeMap.set(sId, {
@@ -113,7 +98,6 @@ export default function App() {
 
       const sNode = nodeMap.get(sId);
       const rNode = nodeMap.get(rId);
-
       sNode.total_sent += amt;
       sNode.out_degree += 1;
       rNode.total_received += amt;
@@ -137,14 +121,32 @@ export default function App() {
         e.amount += amt;
         e.count += 1;
       } else {
-        edgeMap.set(edgeKey, {
-          source: sId,
-          target: rId,
-          amount: amt,
-          count: 1,
-          rail: t.rail
-        });
+        edgeMap.set(edgeKey, { source: sId, target: rId, amount: amt, count: 1, rail: t.rail });
       }
+
+      // Account-level risk scoring
+      [
+        { id: sId, name: t.sender_name, vpa: t.sender_vpa, bank: t.sender_bank },
+        { id: rId, name: t.receiver_name, vpa: t.receiver_vpa, bank: t.receiver_bank }
+      ].forEach((party) => {
+        if (!accRiskMap.has(party.id)) {
+          accRiskMap.set(party.id, {
+            account_id: party.id,
+            name: party.name,
+            vpa: party.vpa,
+            bank: party.bank,
+            max_risk_score: 0,
+            txn_count: 0,
+            flagged_count: 0,
+            total_volume: 0
+          });
+        }
+        const entry = accRiskMap.get(party.id);
+        entry.txn_count += 1;
+        entry.total_volume += amt;
+        if (score > entry.max_risk_score) entry.max_risk_score = score;
+        if (score >= 60) entry.flagged_count += 1;
+      });
     });
 
     setGraphData({
@@ -157,124 +159,246 @@ export default function App() {
         mule_hubs_count: muleNodes.size
       }
     });
-  };
 
-  const handleSimulateAttack = (scenarioType) => {
+    const rankedAccounts = Array.from(accRiskMap.values())
+      .sort((a, b) => b.max_risk_score - a.max_risk_score || b.flagged_count - a.flagged_count)
+      .slice(0, 10);
+    setAccountRisks(rankedAccounts);
+  }, []);
+
+  const syncFromBackend = useCallback(async () => {
+    const [txRes, alertRes, graphRes, accRes] = await Promise.all([
+      fetch(`${API_BASE}/api/transactions/recent?limit=80`),
+      fetch(`${API_BASE}/api/alerts?limit=50`),
+      fetch(`${API_BASE}/api/graph`),
+      fetch(`${API_BASE}/api/accounts/risk`)
+    ]);
+    if (!txRes.ok) throw new Error("Backend unavailable");
+    const [txData, alertData, gData, aData] = await Promise.all([
+      txRes.json(),
+      alertRes.json(),
+      graphRes.json(),
+      accRes.json()
+    ]);
+    setTransactions(txData);
+    setFraudAlerts(alertData);
+    setGraphData(gData);
+    setAccountRisks(aData);
+    setBackendConnected(true);
+  }, []);
+
+  // Initial load: try FastAPI backend, otherwise seed local engine
+  useEffect(() => {
+    syncFromBackend().catch(() => {
+      setBackendConnected(false);
+      const seedTxns = Array.from({ length: 22 }, () => generateRandomNormalTxn(INITIAL_ACCOUNTS));
+      setTransactions(seedTxns);
+      rebuildLocalDerivedState(seedTxns, INITIAL_ACCOUNTS);
+    });
+  }, [syncFromBackend, rebuildLocalDerivedState]);
+
+  // Live stream tick
+  useEffect(() => {
+    if (!isSimulating) return;
+
+    const interval = setInterval(async () => {
+      if (backendConnected) {
+        try {
+          const res = await fetch(`${API_BASE}/api/transactions/tick`, { method: "POST" });
+          if (res.ok) {
+            await syncFromBackend();
+            return;
+          }
+        } catch {
+          setBackendConnected(false);
+        }
+      }
+
+      const newTxn = generateRandomNormalTxn(accounts);
+      setTransactions((prev) => {
+        const next = [newTxn, ...prev.slice(0, 100)];
+        rebuildLocalDerivedState(next, accounts);
+        return next;
+      });
+    }, 2500);
+
+    return () => clearInterval(interval);
+  }, [isSimulating, backendConnected, accounts, syncFromBackend, rebuildLocalDerivedState]);
+
+  const handleSimulateAttack = async (scenarioType) => {
+    if (backendConnected) {
+      try {
+        const res = await fetch(`${API_BASE}/api/simulate/${scenarioType}`, { method: "POST" });
+        if (res.ok) {
+          const data = await res.json();
+          await syncFromBackend();
+          if (data.transactions?.length > 0) setSelectedTxnForXai(data.transactions[0]);
+          showToast(`Simulated ${scenarioType} via FastAPI ML & Graph Engine.`);
+          return;
+        }
+      } catch {
+        setBackendConnected(false);
+      }
+    }
+
     const attackTxns = generateScenarioTxns(scenarioType, accounts);
-    setTransactions(prev => {
+    setTransactions((prev) => {
       const merged = [...attackTxns, ...prev];
-      rebuildGraph(merged, accounts);
+      rebuildLocalDerivedState(merged, accounts);
       return merged;
     });
-
-    const newAlerts = attackTxns.filter(t => t.risk_score >= 60);
-    setFraudAlerts(prev => [...newAlerts, ...prev]);
-
-    if (attackTxns.length > 0) {
-      setSelectedTxnForXai(attackTxns[0]);
-    }
-
-    showToast(`Simulation complete: ${scenarioType} flagged in live ledger.`);
+    const newAlerts = attackTxns.filter((t) => t.risk_score >= 60);
+    setFraudAlerts((prev) => [...newAlerts, ...prev]);
+    if (attackTxns.length > 0) setSelectedTxnForXai(attackTxns[0]);
+    showToast(`Simulated ${scenarioType}: ${newAlerts.length} high-risk alerts flagged.`);
   };
 
-  const handleInjectCustomTxn = (customTxn) => {
-    setTransactions(prev => {
+  const handleInjectCustomTxn = async (customTxn) => {
+    if (backendConnected) {
+      try {
+        const res = await fetch(`${API_BASE}/api/transactions/evaluate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(customTxn)
+        });
+        if (res.ok) {
+          const evaluated = await res.json();
+          await syncFromBackend();
+          setSelectedTxnForXai(evaluated);
+          showToast(`Evaluated ${evaluated.txn_id} via ML Engine (Score: ${evaluated.risk_score}/100)`);
+          return;
+        }
+      } catch {
+        setBackendConnected(false);
+      }
+    }
+
+    setTransactions((prev) => {
       const next = [customTxn, ...prev];
-      rebuildGraph(next, accounts);
+      rebuildLocalDerivedState(next, accounts);
       return next;
     });
-
     if (customTxn.risk_score >= 60) {
-      setFraudAlerts(prev => [customTxn, ...prev]);
+      setFraudAlerts((prev) => [customTxn, ...prev]);
     }
     setSelectedTxnForXai(customTxn);
-    showToast(`Evaluated: ${customTxn.txn_id} (Score: ${customTxn.risk_score}/100)`);
+    showToast(`Evaluated ${customTxn.txn_id} (Risk Score: ${customTxn.risk_score}/100)`);
   };
 
-  const handleDispatch1930 = (txn) => {
+  const handleDispatch1930 = async (txn) => {
+    if (backendConnected) {
+      try {
+        const res = await fetch(`${API_BASE}/api/compliance/1930-lien/${txn.txn_id}`, { method: "POST" });
+        if (res.ok) {
+          const data = await res.json();
+          showToast(`I4C 1930 Lien Dispatched: ${data.ticket.ticket_id}`);
+          return;
+        }
+      } catch {
+        // fallback below
+      }
+    }
     const ticket = generateI4CTicket(txn);
-    showToast(`I4C 1930 Golden Hour Lien Ticket Dispatched: ${ticket.ticket_id}`);
+    showToast(`I4C 1930 Lien Dispatched: ${ticket.ticket_id}`);
   };
 
-  const showToast = (msg) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3500);
+  const tabTitles = {
+    overview: { title: "Security Overview", subtitle: "Real-time fraud monitoring, anomaly trend, and priority review queue" },
+    stream: { title: "Transaction Ledger", subtitle: "Live UPI, IMPS & RTGS stream with sub-50ms risk scoring" },
+    graph: { title: "AML Network Topology", subtitle: "Directed transaction graph for circular layering & mule hub detection" },
+    simulator: { title: "Threat Simulation Lab", subtitle: "Test detection models against synthetic Indian cyber-fraud patterns" },
+    compliance: { title: "Regulatory & STR Filing", subtitle: "FIU-IND Form PMLA-12 compilation and I4C 1930 lien controls" },
+    methodology: { title: "Methodology & Governance", subtitle: "System architecture, hybrid AI scoring, and responsible AI practices" }
   };
+
+  const currentHeader = tabTitles[activeTab] || tabTitles.overview;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500/30">
-      {/* Top Professional Header */}
-      <Header
+    <div className="min-h-screen bg-[#F8FAFC] text-zinc-900 flex flex-col lg:flex-row">
+      <Sidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         isSimulating={isSimulating}
         setIsSimulating={setIsSimulating}
-        simSpeed={simSpeed}
-        setSimSpeed={setSimSpeed}
+        backendConnected={backendConnected}
+        alertCount={fraudAlerts.length}
         onOpenCustomTxn={() => setIsCustomModalOpen(true)}
       />
 
-      {/* Main Content Area */}
-      <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-[1600px] mx-auto w-full">
-        {/* Toast Notification */}
-        {toastMessage && (
-          <div className="mb-4 p-3 bg-slate-900 border border-slate-700 text-white rounded-xl text-xs font-medium flex items-center justify-between shadow-lg animate-in slide-in-from-top-2 duration-150">
-            <span>{toastMessage}</span>
-            <button onClick={() => setToastMessage(null)} className="text-slate-400 hover:text-white ml-3">✕</button>
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Clean Minimal Page Header */}
+        <div className="bg-white/80 backdrop-blur-sm border-b border-zinc-200 px-5 sm:px-8 py-4 flex items-center justify-between gap-4 sticky top-0 z-30">
+          <div>
+            <h1 className="text-base sm:text-lg font-semibold text-zinc-900 tracking-tight m-0">
+              {currentHeader.title}
+            </h1>
+            <p className="text-xs text-zinc-500 m-0 mt-0.5">{currentHeader.subtitle}</p>
           </div>
-        )}
+          <div className="hidden sm:flex items-center gap-2 text-[11px] font-mono text-zinc-500">
+            <span className="px-2 py-1 rounded-md bg-zinc-100 border border-zinc-200">
+              Synthetic Data Sandbox
+            </span>
+          </div>
+        </div>
 
-        {/* View Switcher */}
-        {activeTab === "overview" && (
-          <OverviewView
-            txns={transactions}
-            fraudAlerts={fraudAlerts}
-            graphSummary={graphData?.summary}
-            onSelectTxn={(t) => setSelectedTxnForXai(t)}
-            onNavigateToTab={(tab) => setActiveTab(tab)}
-          />
-        )}
+        <main className="flex-1 p-5 sm:p-8 max-w-[1440px] w-full mx-auto">
+          {toastMessage && (
+            <div className="mb-5 px-4 py-2.5 bg-zinc-900 text-white rounded-lg text-xs font-medium flex items-center justify-between shadow-md">
+              <span>{toastMessage}</span>
+              <button onClick={() => setToastMessage(null)} className="text-zinc-400 hover:text-white ml-4 cursor-pointer">
+                ✕
+              </button>
+            </div>
+          )}
 
-        {activeTab === "stream" && (
-          <TransactionStream
-            txns={transactions}
-            onSelectTxn={(t) => setSelectedTxnForXai(t)}
-          />
-        )}
+          {activeTab === "overview" && (
+            <OverviewView
+              txns={transactions}
+              fraudAlerts={fraudAlerts}
+              graphSummary={graphData?.summary}
+              accountRisks={accountRisks}
+              onSelectTxn={(t) => setSelectedTxnForXai(t)}
+              onNavigateToTab={(tab) => setActiveTab(tab)}
+            />
+          )}
 
-        {activeTab === "graph" && (
-          <div className="h-[650px]">
+          {activeTab === "stream" && (
+            <TransactionStream
+              txns={transactions}
+              onSelectTxn={(t) => setSelectedTxnForXai(t)}
+            />
+          )}
+
+          {activeTab === "graph" && (
             <GraphCanvas
               graphData={graphData}
               onSelectNode={(node) => {
-                const match = transactions.find(t => t.sender_account === node.id || t.receiver_account === node.id);
+                const match = transactions.find(
+                  (t) => t.sender_account === node.id || t.receiver_account === node.id
+                );
                 if (match) setSelectedTxnForXai(match);
               }}
             />
-          </div>
-        )}
+          )}
 
-        {activeTab === "simulator" && (
-          <SimulateView onSimulateAttack={handleSimulateAttack} />
-        )}
+          {activeTab === "simulator" && (
+            <SimulateView
+              onSimulateAttack={handleSimulateAttack}
+              onOpenCustomTxn={() => setIsCustomModalOpen(true)}
+            />
+          )}
 
-        {activeTab === "compliance" && (
-          <ComplianceView
-            fraudAlerts={fraudAlerts}
-            onSelectTxn={(t) => setSelectedTxnForXai(t)}
-            onOpenStrModal={(t) => setSelectedTxnForStr(t)}
-          />
-        )}
-      </main>
+          {activeTab === "compliance" && (
+            <ComplianceView
+              fraudAlerts={fraudAlerts}
+              onOpenStrModal={(t) => setSelectedTxnForStr(t)}
+            />
+          )}
 
-      {/* Footer */}
-      <footer className="border-t border-slate-900 bg-slate-950/80 py-4 px-6 text-center text-xs text-slate-500">
-        <p className="m-0">
-          Kavach (कवच) • Intelligent Financial Fraud Detection & Anti-Money Laundering System • NPCI, RBI & FIU-IND Compliant
-        </p>
-      </footer>
+          {activeTab === "methodology" && <MethodologyView />}
+        </main>
+      </div>
 
-      {/* Drawers and Modals */}
       {selectedTxnForXai && (
         <XaiDrawer
           txn={selectedTxnForXai}
@@ -285,10 +409,7 @@ export default function App() {
       )}
 
       {selectedTxnForStr && (
-        <StrModal
-          txn={selectedTxnForStr}
-          onClose={() => setSelectedTxnForStr(null)}
-        />
+        <StrModal txn={selectedTxnForStr} onClose={() => setSelectedTxnForStr(null)} />
       )}
 
       {isCustomModalOpen && (

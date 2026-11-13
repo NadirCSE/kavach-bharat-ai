@@ -1,240 +1,290 @@
 import React from "react";
 import { formatINR } from "../data/mockEngine";
-import { ShieldCheck, AlertOctagon, Timer, Network, ArrowUpRight, ChevronRight, Activity, ArrowRight } from "lucide-react";
+import { ChevronRight, ArrowUpRight } from "lucide-react";
 
-export default function OverviewView({ txns, fraudAlerts, graphSummary, onSelectTxn, onNavigateToTab }) {
+export default function OverviewView({
+  txns,
+  fraudAlerts,
+  graphSummary,
+  accountRisks = [],
+  onSelectTxn,
+  onNavigateToTab
+}) {
   const totalVolume = txns.reduce((acc, t) => acc + (Number(t.amount) || 0), 0);
   const fraudAmount = fraudAlerts.reduce((acc, t) => acc + (Number(t.amount) || 0), 0);
   const cycleCount = graphSummary?.circular_cycles_count || 0;
+  const flagRate = txns.length > 0 ? ((fraudAlerts.length / txns.length) * 100).toFixed(1) : "0.0";
 
-  // Rail percentages
-  const upiCount = txns.filter(t => t.rail?.includes("UPI")).length || 1;
-  const impsCount = txns.filter(t => t.rail === "IMPS").length;
-  const rtgsCount = txns.filter(t => t.rail === "RTGS").length;
+  // Build minimal SVG spark/trend from last 18 transactions
+  const recentSlice = [...txns].slice(0, 18).reverse();
+  const chartW = 540;
+  const chartH = 120;
+  const pad = 12;
+
+  const points = recentSlice.map((t, i) => {
+    const x = pad + (i / Math.max(recentSlice.length - 1, 1)) * (chartW - pad * 2);
+    const y = chartH - pad - ((t.risk_score || 0) / 100) * (chartH - pad * 2);
+    return { x, y, score: t.risk_score || 0, txn: t };
+  });
+
+  const linePath =
+    points.length > 1
+      ? points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ")
+      : "";
+
+  const areaPath =
+    points.length > 1
+      ? `${linePath} L ${points[points.length - 1].x.toFixed(1)} ${chartH - pad} L ${points[0].x.toFixed(1)} ${chartH - pad} Z`
+      : "";
+
+  // Rail distribution
   const totalCount = txns.length || 1;
-
-  const upiPct = Math.round((upiCount / totalCount) * 100);
-  const impsPct = Math.round((impsCount / totalCount) * 100);
-  const rtgsPct = Math.round((rtgsCount / totalCount) * 100);
+  const upiPct = Math.round((txns.filter((t) => t.rail?.includes("UPI")).length / totalCount) * 100);
+  const impsPct = Math.round((txns.filter((t) => t.rail === "IMPS").length / totalCount) * 100);
+  const rtgsPct = Math.round((txns.filter((t) => t.rail === "RTGS").length / totalCount) * 100);
 
   return (
     <div className="space-y-6">
-      {/* 4 Clean Minimalist KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Card 1 */}
-        <div className="card-clean p-4">
-          <div className="flex items-center justify-between text-slate-400 text-xs font-medium">
-            <span>Processed Volume</span>
-            <span className="text-[10px] text-emerald-400 font-mono bg-emerald-950/60 border border-emerald-800/40 px-1.5 py-0.5 rounded">
-              Live Ingest
-            </span>
-          </div>
-          <div className="text-2xl font-semibold text-white tracking-tight mt-2 font-mono">
+      {/* 4 Minimalist KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <div className="surface-card p-5">
+          <div className="text-xs font-medium text-zinc-500">Monitored Volume</div>
+          <div className="text-2xl font-semibold text-zinc-900 tracking-tight mt-2 tabular-nums font-mono">
             {formatINR(totalVolume)}
           </div>
-          <div className="text-xs text-slate-400 mt-1 flex items-center justify-between">
-            <span>{txns.length} transactions</span>
-            <span className="text-slate-500">Across 6 Banks</span>
-          </div>
+          <div className="text-xs text-zinc-500 mt-1.5">{txns.length} transactions processed</div>
         </div>
 
-        {/* Card 2 */}
-        <div className="card-clean p-4">
-          <div className="flex items-center justify-between text-slate-400 text-xs font-medium">
-            <span>Threats Intercepted</span>
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+        <div className="surface-card p-5">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-zinc-500">Flagged Exposure</span>
+            <span className="text-[11px] font-mono px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200">
+              {flagRate}% rate
+            </span>
           </div>
-          <div className="text-2xl font-semibold text-white tracking-tight mt-2 font-mono">
+          <div className="text-2xl font-semibold text-zinc-900 tracking-tight mt-2 tabular-nums font-mono">
             {formatINR(fraudAmount)}
           </div>
-          <div className="text-xs text-slate-400 mt-1 flex items-center justify-between">
-            <span className="text-emerald-400 font-medium">{fraudAlerts.length} flags contained</span>
-            <span className="text-slate-500">Auto-Lien Active</span>
+          <div className="text-xs text-zinc-500 mt-1.5">{fraudAlerts.length} suspicious alerts</div>
+        </div>
+
+        <div className="surface-card p-5">
+          <div className="text-xs font-medium text-zinc-500">AML Topology Rings</div>
+          <div className="text-2xl font-semibold text-zinc-900 tracking-tight mt-2 tabular-nums font-mono">
+            {cycleCount}
+            <span className="text-xs font-sans font-normal text-zinc-500 ml-2">
+              {graphSummary?.mule_hubs_count || 0} mule hubs
+            </span>
+          </div>
+          <div className="text-xs text-zinc-500 mt-1.5">Circular & fan-in graph checks</div>
+        </div>
+
+        <div className="surface-card p-5">
+          <div className="text-xs font-medium text-zinc-500">Golden Hour Response</div>
+          <div className="text-2xl font-semibold text-zinc-900 tracking-tight mt-2 tabular-nums font-mono">
+            14s
+            <span className="text-xs font-sans font-normal text-emerald-700 ml-2">Avg. SLA</span>
+          </div>
+          <div className="text-xs text-zinc-500 mt-1.5">I4C 1930 target under 60s</div>
+        </div>
+      </div>
+
+      {/* Middle Row: Anomaly Trend + Rail / Account Risk */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Risk & Anomaly Signal Chart */}
+        <div className="lg:col-span-8 surface-card p-5 flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h2 className="text-sm font-semibold text-zinc-900 m-0">Real-Time Risk Signal Timeline</h2>
+              <p className="text-xs text-zinc-500 m-0 mt-0.5">
+                Transaction risk scores (0–100) across the latest 18 events. Threshold line at 60.
+              </p>
+            </div>
+            <div className="flex items-center gap-3 text-[11px] text-zinc-500">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-zinc-900" /> Normal
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-rose-600" /> Flagged (≥60)
+              </span>
+            </div>
+          </div>
+
+          <div className="w-full overflow-hidden">
+            <svg viewBox={`0 0 ${chartW} ${chartH}`} className="w-full h-36 overflow-visible">
+              <defs>
+                <linearGradient id="riskFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#18181b" stopOpacity="0.08" />
+                  <stop offset="100%" stopColor="#18181b" stopOpacity="0.0" />
+                </linearGradient>
+              </defs>
+
+              {/* Threshold line at 60 */}
+              <line
+                x1={pad}
+                x2={chartW - pad}
+                y1={chartH - pad - 0.6 * (chartH - pad * 2)}
+                y2={chartH - pad - 0.6 * (chartH - pad * 2)}
+                stroke="#e4e4e7"
+                strokeDasharray="4 4"
+                strokeWidth="1"
+              />
+
+              {areaPath && <path d={areaPath} fill="url(#riskFill)" />}
+              {linePath && (
+                <path d={linePath} fill="none" stroke="#18181b" strokeWidth="1.75" strokeLinejoin="round" />
+              )}
+
+              {points.map((p, idx) => {
+                const flagged = p.score >= 60;
+                return (
+                  <circle
+                    key={idx}
+                    cx={p.x}
+                    cy={p.y}
+                    r={flagged ? 4 : 2.5}
+                    fill={flagged ? "#e11d48" : "#18181b"}
+                    stroke="#ffffff"
+                    strokeWidth="1.5"
+                    className="cursor-pointer"
+                    onClick={() => onSelectTxn(p.txn)}
+                  >
+                    <title>{`${p.txn.sender_name}: Risk ${p.score}/100 (${formatINR(p.txn.amount)})`}</title>
+                  </circle>
+                );
+              })}
+            </svg>
           </div>
         </div>
 
-        {/* Card 3 */}
-        <div className="card-clean p-4">
-          <div className="flex items-center justify-between text-slate-400 text-xs font-medium">
-            <span>Golden Hour Response</span>
-            <Timer className="w-3.5 h-3.5 text-amber-400" />
+        {/* Payment Rails & Highest Risk Account */}
+        <div className="lg:col-span-4 surface-card p-5 flex flex-col justify-between space-y-5">
+          <div>
+            <h2 className="text-sm font-semibold text-zinc-900 mb-3">Channel Mix</h2>
+            <div className="space-y-3 text-xs">
+              {[
+                { label: "UPI P2P & Collect", pct: upiPct, color: "bg-zinc-900" },
+                { label: "IMPS Immediate", pct: impsPct, color: "bg-zinc-500" },
+                { label: "RTGS High-Value", pct: rtgsPct, color: "bg-amber-500" }
+              ].map((rail) => (
+                <div key={rail.label}>
+                  <div className="flex justify-between text-zinc-600 mb-1">
+                    <span>{rail.label}</span>
+                    <span className="font-mono text-zinc-900 tabular-nums">{rail.pct}%</span>
+                  </div>
+                  <div className="w-full bg-zinc-100 rounded-full h-1.5 overflow-hidden">
+                    <div className={`${rail.color} h-1.5 rounded-full`} style={{ width: `${rail.pct}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="text-2xl font-semibold text-white tracking-tight mt-2 font-mono flex items-baseline gap-1.5">
-            <span>14s</span>
-            <span className="text-xs font-normal text-slate-400 font-sans">avg inter-bank</span>
-          </div>
-          <div className="text-xs text-slate-400 mt-1 flex items-center justify-between">
-            <span>I4C 1930 Target: &lt; 60s</span>
-            <span className="text-emerald-400">98.4% On Time</span>
-          </div>
-        </div>
 
-        {/* Card 4 */}
-        <div className="card-clean p-4">
-          <div className="flex items-center justify-between text-slate-400 text-xs font-medium">
-            <span>Laundering Cycles</span>
-            <Network className="w-3.5 h-3.5 text-purple-400" />
-          </div>
-          <div className="text-2xl font-semibold text-white tracking-tight mt-2 font-mono flex items-baseline gap-1.5">
-            <span>{cycleCount}</span>
-            <span className="text-xs font-normal text-slate-400 font-sans">active rings</span>
-          </div>
-          <div className="text-xs text-slate-400 mt-1 flex items-center justify-between">
-            <span>Graph Cycle A-B-C-A</span>
-            <span className="text-purple-400">Layering Tracked</span>
+          <div className="pt-4 border-t border-zinc-100 flex items-center justify-between">
+            <div>
+              <div className="text-xs font-medium text-zinc-900">Run Fraud Simulation</div>
+              <div className="text-[11px] text-zinc-500">Inject smurfing, circular loops & traps</div>
+            </div>
+            <button
+              onClick={() => onNavigateToTab("simulator")}
+              className="px-3 py-1.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-900 text-xs font-medium inline-flex items-center gap-1 transition-colors cursor-pointer"
+            >
+              <span>Threat Lab</span>
+              <ArrowUpRight className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
       </div>
 
-      {/* Main Two Columns */}
+      {/* Bottom Row: Priority Queue (8 cols) + Account Risk Watchlist (4 cols) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left: Recent Alerts Ledger (8 cols) */}
-        <div className="lg:col-span-8 card-clean p-5 flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <div>
-                <h3 className="text-sm font-semibold text-white m-0">
-                  Priority Threat Queue
-                </h3>
-                <p className="text-xs text-slate-400 m-0 mt-0.5">
-                  Transactions requiring compliance verification or lien action under RBI / PMLA guidelines.
-                </p>
-              </div>
-              <button
-                onClick={() => onNavigateToTab("stream")}
-                className="text-xs font-medium text-indigo-400 hover:text-indigo-300 flex items-center gap-1 cursor-pointer"
-              >
-                <span>View All Transactions</span>
-                <ChevronRight className="w-3.5 h-3.5" />
-              </button>
+        <div className="lg:col-span-8 surface-card overflow-hidden">
+          <div className="px-5 py-4 border-b border-zinc-100 flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-zinc-900 m-0">Priority Alert Queue</h2>
+              <p className="text-xs text-zinc-500 m-0 mt-0.5">
+                Click any alert to open the Explainable AI drawer
+              </p>
             </div>
-
-            {/* List */}
-            <div className="divide-y divide-slate-800/60 mt-2">
-              {fraudAlerts.length === 0 ? (
-                <div className="py-10 text-center text-slate-500 text-xs">
-                  <p>No active threats in the priority queue.</p>
-                  <p className="text-[11px] text-slate-600 mt-1">
-                    Use the <strong>Threat Lab</strong> tab to simulate real Indian fraud vectors.
-                  </p>
-                </div>
-              ) : (
-                fraudAlerts.slice(0, 5).map((alert, idx) => (
-                  <div
-                    key={`${alert.txn_id}-${idx}`}
-                    onClick={() => onSelectTxn(alert)}
-                    className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-900/40 px-2 rounded-lg transition-colors cursor-pointer group"
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className="mt-0.5">
-                        <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${
-                          alert.risk_score >= 80
-                            ? "bg-red-500/10 text-red-400 border-red-500/20"
-                            : "bg-amber-500/10 text-amber-400 border-amber-500/20"
-                        }`}>
-                          {alert.risk_score}/100
-                        </span>
-                      </div>
-                      <div>
-                        <div className="text-xs font-medium text-white group-hover:text-indigo-300 transition-colors">
-                          {alert.sender_name} ➔ {alert.receiver_name}
-                        </div>
-                        <div className="text-[11px] text-slate-400 flex items-center gap-2 mt-0.5">
-                          <span className="font-mono text-slate-500">{alert.sender_vpa}</span>
-                          <span>•</span>
-                          <span className="text-slate-400">{alert.rail}</span>
-                          <span>•</span>
-                          <span className="text-slate-500">{alert.city}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between sm:justify-end gap-3 text-right">
-                      <div>
-                        <div className="text-xs font-semibold text-white font-mono">
-                          {formatINR(alert.amount)}
-                        </div>
-                        <div className="text-[10px] text-slate-500">
-                          {alert.timestamp ? new Date(alert.timestamp).toLocaleTimeString("en-IN", { hour12: false }) : ""}
-                        </div>
-                      </div>
-                      <button className="px-2.5 py-1 text-[11px] font-medium rounded bg-slate-800 group-hover:bg-indigo-600 group-hover:text-white text-slate-300 transition-colors">
-                        Review
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
+            <button
+              onClick={() => onNavigateToTab("stream")}
+              className="text-xs font-medium text-zinc-700 hover:text-zinc-900 inline-flex items-center gap-1 cursor-pointer"
+            >
+              <span>All transactions</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
           </div>
 
-          {/* Footer banner */}
-          <div className="pt-4 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400 mt-4">
-            <span className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-              <span>Real-time screening active on UPI Switch</span>
-            </span>
-            <span className="text-[11px] text-slate-500">
-              NPCI Master Directions (July 2024)
-            </span>
+          <div className="divide-y divide-zinc-100">
+            {fraudAlerts.length === 0 ? (
+              <div className="py-12 text-center text-xs text-zinc-500">
+                No active fraud alerts. Open <strong className="text-zinc-800">Threat Lab</strong> to inject a test scenario.
+              </div>
+            ) : (
+              fraudAlerts.slice(0, 5).map((alert, idx) => (
+                <div
+                  key={`${alert.txn_id}-${idx}`}
+                  onClick={() => onSelectTxn(alert)}
+                  className="px-5 py-3.5 flex items-center justify-between gap-4 hover:bg-zinc-50 transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span
+                      className={`text-[11px] font-mono font-semibold px-2 py-0.5 rounded border shrink-0 tabular-nums ${
+                        alert.risk_score >= 80
+                          ? "bg-rose-50 text-rose-700 border-rose-200"
+                          : "bg-amber-50 text-amber-700 border-amber-200"
+                      }`}
+                    >
+                      {alert.risk_score}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="text-xs font-medium text-zinc-900 truncate">
+                        {alert.sender_name} → {alert.receiver_name}
+                      </div>
+                      <div className="text-[11px] text-zinc-500 truncate">
+                        {alert.explainability?.factors?.[0]?.factor || alert.rail} • {alert.city}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="text-right shrink-0">
+                    <div className="text-xs font-mono font-semibold text-zinc-900 tabular-nums">
+                      {formatINR(alert.amount)}
+                    </div>
+                    <div className="text-[11px] text-zinc-400">{alert.rail}</div>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
 
-        {/* Right: Payment Rails & Risk Breakdown (4 cols) */}
-        <div className="lg:col-span-4 space-y-4">
-          {/* Rails breakdown */}
-          <div className="card-clean p-4">
-            <h3 className="text-xs font-semibold text-white uppercase tracking-wider mb-3">
-              Payment Rail Distribution
-            </h3>
-            <div className="space-y-2.5 text-xs">
-              <div>
-                <div className="flex justify-between text-slate-300 mb-1">
-                  <span>UPI P2P & P2M</span>
-                  <span className="font-mono text-slate-400">{upiPct}%</span>
-                </div>
-                <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                  <div className="bg-indigo-500 h-1.5 rounded-full" style={{ width: `${upiPct}%` }} />
-                </div>
-              </div>
-
-              <div>
-                <div className="flex justify-between text-slate-300 mb-1">
-                  <span>IMPS Immediate</span>
-                  <span className="font-mono text-slate-400">{impsPct}%</span>
-                </div>
-                <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                  <div className="bg-sky-500 h-1.5 rounded-full" style={{ width: `${impsPct}%` }} />
-                </div>
-              </div>
-
-              <div>
-                <div className="flex justify-between text-slate-300 mb-1">
-                  <span>RTGS Real-Time</span>
-                  <span className="font-mono text-slate-400">{rtgsPct}%</span>
-                </div>
-                <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                  <div className="bg-amber-500 h-1.5 rounded-full" style={{ width: `${rtgsPct}%` }} />
-                </div>
-              </div>
-            </div>
+        {/* Account-Level Risk Watchlist */}
+        <div className="lg:col-span-4 surface-card overflow-hidden">
+          <div className="px-5 py-4 border-b border-zinc-100">
+            <h2 className="text-sm font-semibold text-zinc-900 m-0">Account Risk Watchlist</h2>
+            <p className="text-xs text-zinc-500 m-0 mt-0.5">Highest-risk accounts by behavioral score</p>
           </div>
-
-          {/* Quick Threat Lab Promo Card */}
-          <div className="card-clean p-4 bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950/30 border border-slate-800">
-            <h3 className="text-xs font-semibold text-white uppercase tracking-wider mb-1">
-              Indian Threat Simulation Lab
-            </h3>
-            <p className="text-xs text-slate-400 leading-relaxed mb-3">
-              Test detection accuracy against Digital Arrest extortion, Section 139A sub-₹50k smurfing, and circular layering loops.
-            </p>
-            <button
-              onClick={() => onNavigateToTab("simulator")}
-              className="w-full py-2 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-            >
-              <span>Open Threat Testing Lab</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
+          <div className="divide-y divide-zinc-100">
+            {accountRisks.slice(0, 5).map((acc) => (
+              <div key={acc.account_id} className="px-5 py-3 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-xs font-medium text-zinc-900 truncate">{acc.name}</div>
+                  <div className="text-[11px] font-mono text-zinc-500 truncate">{acc.vpa || acc.account_id}</div>
+                </div>
+                <span
+                  className={`text-[11px] font-mono font-medium px-2 py-0.5 rounded border tabular-nums shrink-0 ${
+                    acc.max_risk_score >= 80
+                      ? "bg-rose-50 text-rose-700 border-rose-200"
+                      : acc.max_risk_score >= 60
+                      ? "bg-amber-50 text-amber-700 border-amber-200"
+                      : "bg-zinc-100 text-zinc-700 border-zinc-200"
+                  }`}
+                >
+                  {acc.max_risk_score}/100
+                </span>
+              </div>
+            ))}
           </div>
         </div>
       </div>

@@ -5,7 +5,7 @@ graph analytics, scenario attack simulation, and regulatory compliance.
 """
 
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMouter, CORSMiddleware
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 
@@ -18,10 +18,9 @@ from database import db
 app = FastAPI(
     title="Kavach-Bharat AI (कवच)",
     description="Intelligent Indian Financial Fraud Detection & Anti-Money Laundering Defense Engine",
-    version="2.0.0"
+    version="2.4.0"
 )
 
-# Enable CORS for frontend integration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -30,27 +29,37 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize engines
 generator = IndianBankingDataGenerator()
 detector = KavachDetectionEngine()
 graph_engine = IndianFinancialGraphEngine()
 
-# Seed accounts into DB
 for acc in generator.accounts:
     db.save_account(acc)
 
-# In-memory storage for evaluated transactions
 transaction_feed: List[Dict[str, Any]] = []
 fraud_alerts: List[Dict[str, Any]] = []
 
-# Pre-seed with initial normal transactions
+
+def _get_current_graph_context():
+    cycles = graph_engine.detect_circular_flows()
+    circular_nodes = set()
+    for c in cycles:
+        circular_nodes.update(c)
+    mules = graph_engine.detect_mule_hubs()
+    mule_nodes = {m["account_id"] for m in mules if m.get("is_suspected_mule")}
+    return {"circular_nodes": circular_nodes, "mule_nodes": mule_nodes}
+
+
+# Pre-seed initial transactions
 for _ in range(25):
     txn = generator.generate_normal_transaction()
-    eval_res = detector.evaluate_transaction(txn)
     graph_engine.add_transaction(txn)
+    eval_res = detector.evaluate_transaction(txn, _get_current_graph_context())
     merged = {**txn, **eval_res}
     transaction_feed.append(merged)
     db.save_transaction(merged)
+    if eval_res["risk_score"] >= 60:
+        fraud_alerts.append(merged)
 
 
 class TransactionPayload(BaseModel):
@@ -96,23 +105,28 @@ def get_system_status():
 
 
 @app.get("/api/transactions/recent")
-def get_recent_transactions(limit: int = 50):
+def get_recent_transactions(limit: int = 80):
     return transaction_feed[-limit:][::-1]
 
 
 @app.get("/api/alerts")
-def get_fraud_alerts(limit: int = 30):
+def get_fraud_alerts(limit: int = 50):
     return fraud_alerts[-limit:][::-1]
 
 
-def _get_current_graph_context():
-    cycles = graph_engine.detect_circular_flows()
-    circular_nodes = set()
-    for c in cycles:
-        circular_nodes.update(c)
-    mules = graph_engine.detect_mule_hubs()
-    mule_nodes = {m["account_id"] for m in mules if m.get("is_suspected_mule")}
-    return {"circular_nodes": circular_nodes, "mule_nodes": mule_nodes}
+@app.post("/api/transactions/tick")
+def stream_tick():
+    """Generates and evaluates one live synthetic transaction through ML + Graph engine."""
+    txn = generator.generate_normal_transaction()
+    graph_engine.add_transaction(txn)
+    eval_res = detector.evaluate_transaction(txn, _get_current_graph_context())
+    merged = {**txn, **eval_res}
+    transaction_feed.append(merged)
+    db.save_transaction(merged)
+    if eval_res["risk_score"] >= 60:
+        fraud_alerts.append(merged)
+    return merged
+
 
 @app.post("/api/transactions/evaluate")
 def evaluate_transaction_endpoint(payload: TransactionPayload):
@@ -144,7 +158,6 @@ def simulate_attack(scenario_type: str):
     attack_txns = generator.generate_attack_scenario(scenario_type)
     evaluated_txns = []
 
-    # First add all edges to graph so topological cycles and hubs are populated
     for txn in attack_txns:
         graph_engine.add_transaction(txn)
 
@@ -172,6 +185,39 @@ def get_graph_data():
     return graph_engine.export_graph_for_visualization()
 
 
+@app.get("/api/accounts/risk")
+def get_account_risk_profiles():
+    """Returns account-level risk aggregation for AML & watchlist monitoring."""
+    acc_scores: Dict[str, Dict[str, Any]] = {}
+    for t in transaction_feed:
+        for role_id, role_name, role_vpa, role_bank in [
+            (t["sender_account"], t.get("sender_name"), t.get("sender_vpa"), t.get("sender_bank")),
+            (t["receiver_account"], t.get("receiver_name"), t.get("receiver_vpa"), t.get("receiver_bank")),
+        ]:
+            if role_id not in acc_scores:
+                acc_scores[role_id] = {
+                    "account_id": role_id,
+                    "name": role_name,
+                    "vpa": role_vpa,
+                    "bank": role_bank,
+                    "max_risk_score": 0,
+                    "txn_count": 0,
+                    "flagged_count": 0,
+                    "total_volume": 0.0
+                }
+            entry = acc_scores[role_id]
+            entry["txn_count"] += 1
+            entry["total_volume"] += float(t.get("amount", 0))
+            score = int(t.get("risk_score", 0))
+            if score > entry["max_risk_score"]:
+                entry["max_risk_score"] = score
+            if score >= 60:
+                entry["flagged_count"] += 1
+
+    ranked = sorted(acc_scores.values(), key=lambda x: (x["max_risk_score"], x["flagged_count"]), reverse=True)
+    return ranked[:20]
+
+
 @app.get("/api/compliance/str/{txn_id}")
 def get_fiu_ind_str_report(txn_id: str):
     target_txn = next((t for t in transaction_feed if t["txn_id"] == txn_id), None)
@@ -179,6 +225,7 @@ def get_fiu_ind_str_report(txn_id: str):
         raise HTTPException(status_code=404, detail=f"Transaction {txn_id} not found")
 
     report = IndianComplianceReporting.generate_fiu_ind_str(target_txn, target_txn)
+    db.save_compliance_report(report["report_header"]["report_id"], txn_id, "STR_PMLA_SEC_12", report)
     return report
 
 

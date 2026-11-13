@@ -1,14 +1,14 @@
 import React, { useState } from "react";
 import { evaluateTransactionRules } from "../data/mockEngine";
-import { X, Send, Sparkles } from "lucide-react";
+import { X, Send } from "lucide-react";
 
 export default function CustomTxnModal({ onClose, onInjectTxn }) {
   const [senderName, setSenderName] = useState("Rajesh Kumar");
   const [senderVpa, setSenderVpa] = useState("rajesh.kumar@okhdfcbank");
-  const [senderBank, setSenderBank] = useState("HDFC Bank");
+  const [senderBank] = useState("HDFC Bank");
   const [receiverName, setReceiverName] = useState("Clearance Escrow");
   const [receiverVpa, setReceiverVpa] = useState("cbi.clearance.desk@upi");
-  const [receiverBank, setReceiverBank] = useState("State Bank of India");
+  const [receiverBank] = useState("State Bank of India");
   const [amount, setAmount] = useState("49500");
   const [rail, setRail] = useState("UPI");
   const [city, setCity] = useState("Jamtara");
@@ -18,11 +18,11 @@ export default function CustomTxnModal({ onClose, onInjectTxn }) {
     e.preventDefault();
     const rawTxn = {
       txn_id: `TXN_CUSTOM_${Date.now()}`,
-      sender_account: `ACC_${senderBank.slice(0, 4).toUpperCase()}_${Math.floor(Math.random()*8999+1000)}`,
+      sender_account: `ACC_HDFC_${Math.floor(Math.random() * 8999 + 1000)}`,
       sender_name: senderName,
       sender_vpa: senderVpa,
       sender_bank: senderBank,
-      receiver_account: `ACC_${receiverBank.slice(0, 4).toUpperCase()}_${Math.floor(Math.random()*8999+1000)}`,
+      receiver_account: `ACC_SBI_${Math.floor(Math.random() * 8999 + 1000)}`,
       receiver_name: receiverName,
       receiver_vpa: receiverVpa,
       receiver_bank: receiverBank,
@@ -42,100 +42,92 @@ export default function CustomTxnModal({ onClose, onInjectTxn }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-      <div className="w-full max-w-lg bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
-        <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-indigo-400" />
-            <h2 className="text-sm font-bold text-white m-0">
-              Inject Custom Indian Banking Transaction
-            </h2>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1 text-slate-400 hover:text-white rounded bg-slate-800"
-          >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/30 backdrop-blur-[2px] p-4">
+      <div className="w-full max-w-lg bg-white border border-zinc-200 rounded-2xl overflow-hidden shadow-2xl">
+        <div className="px-5 py-4 border-b border-zinc-200 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-zinc-900 m-0">Evaluate Custom Transaction</h2>
+          <button onClick={onClose} className="p-1 text-zinc-400 hover:text-zinc-900 rounded-lg cursor-pointer">
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-4 space-y-3 text-xs">
-          <div className="grid grid-cols-2 gap-2">
+        <form onSubmit={handleSubmit} className="p-5 space-y-3.5 text-xs">
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-slate-400 mb-1">Sender Name</label>
+              <label className="block text-zinc-500 mb-1">Sender Name</label>
               <input
                 type="text"
                 value={senderName}
-                onChange={e => setSenderName(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 rounded p-2 text-white"
+                onChange={(e) => setSenderName(e.target.value)}
+                className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-zinc-900"
                 required
               />
             </div>
             <div>
-              <label className="block text-slate-400 mb-1">Sender VPA</label>
+              <label className="block text-zinc-500 mb-1">Sender VPA</label>
               <input
                 type="text"
                 value={senderVpa}
-                onChange={e => setSenderVpa(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 rounded p-2 text-white font-mono"
+                onChange={(e) => setSenderVpa(e.target.value)}
+                className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-zinc-900 font-mono"
                 required
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-slate-400 mb-1">Receiver Name</label>
+              <label className="block text-zinc-500 mb-1">Receiver Name</label>
               <input
                 type="text"
                 value={receiverName}
-                onChange={e => setReceiverName(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 rounded p-2 text-white"
+                onChange={(e) => setReceiverName(e.target.value)}
+                className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-zinc-900"
                 required
               />
             </div>
             <div>
-              <label className="block text-slate-400 mb-1">Receiver VPA</label>
+              <label className="block text-zinc-500 mb-1">Receiver VPA</label>
               <input
                 type="text"
                 value={receiverVpa}
-                onChange={e => setReceiverVpa(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 rounded p-2 text-white font-mono"
+                onChange={(e) => setReceiverVpa(e.target.value)}
+                className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-zinc-900 font-mono"
                 required
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="block text-slate-400 mb-1">Amount (₹)</label>
+              <label className="block text-zinc-500 mb-1">Amount (₹)</label>
               <input
                 type="number"
                 value={amount}
-                onChange={e => setAmount(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 rounded p-2 text-white font-mono"
+                onChange={(e) => setAmount(e.target.value)}
+                className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-zinc-900 font-mono"
                 required
               />
             </div>
             <div>
-              <label className="block text-slate-400 mb-1">Payment Rail</label>
+              <label className="block text-zinc-500 mb-1">Rail</label>
               <select
                 value={rail}
-                onChange={e => setRail(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 rounded p-2 text-white"
+                onChange={(e) => setRail(e.target.value)}
+                className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-2.5 py-2 text-zinc-900"
               >
-                <option value="UPI">UPI P2P</option>
-                <option value="UPI_COLLECT">UPI Collect Request</option>
-                <option value="IMPS">IMPS Immediate</option>
-                <option value="RTGS">RTGS Real-Time</option>
+                <option value="UPI">UPI</option>
+                <option value="UPI_COLLECT">UPI Collect</option>
+                <option value="IMPS">IMPS</option>
+                <option value="RTGS">RTGS</option>
               </select>
             </div>
             <div>
-              <label className="block text-slate-400 mb-1">Origin City</label>
+              <label className="block text-zinc-500 mb-1">City</label>
               <select
                 value={city}
-                onChange={e => setCity(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 rounded p-2 text-white"
+                onChange={(e) => setCity(e.target.value)}
+                className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-2.5 py-2 text-zinc-900"
               >
                 <option value="Mumbai">Mumbai</option>
                 <option value="Bengaluru">Bengaluru</option>
@@ -147,30 +139,29 @@ export default function CustomTxnModal({ onClose, onInjectTxn }) {
           </div>
 
           <div>
-            <label className="block text-slate-400 mb-1">Transaction Narration / Remarks</label>
+            <label className="block text-zinc-500 mb-1">Remarks</label>
             <input
               type="text"
               value={remarks}
-              onChange={e => setRemarks(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-800 rounded p-2 text-white"
-              placeholder="e.g. Clearance order, Refund approval enter PIN..."
+              onChange={(e) => setRemarks(e.target.value)}
+              className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-zinc-900"
             />
           </div>
 
-          <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-800">
+          <div className="pt-3 flex items-center justify-end gap-2 border-t border-zinc-100">
             <button
               type="button"
               onClick={onClose}
-              className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-400 rounded"
+              className="px-3.5 py-1.5 border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 rounded-lg cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded font-medium flex items-center gap-1.5 shadow"
+              className="px-4 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg font-medium inline-flex items-center gap-1.5 cursor-pointer"
             >
               <Send className="w-3.5 h-3.5" />
-              <span>Evaluate & Inject</span>
+              <span>Evaluate</span>
             </button>
           </div>
         </form>

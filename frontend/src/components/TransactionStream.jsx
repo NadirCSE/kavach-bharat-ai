@@ -1,12 +1,12 @@
 import React, { useState } from "react";
 import { formatINR } from "../data/mockEngine";
-import { Search, Filter, ArrowRight, Eye, CheckCircle2, ShieldAlert, ArrowUpRight } from "lucide-react";
+import { Search, CheckCircle2, ShieldAlert } from "lucide-react";
 
 export default function TransactionStream({ txns, onSelectTxn }) {
   const [filter, setFilter] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
 
-  const filteredTxns = txns.filter(t => {
+  const filteredTxns = txns.filter((t) => {
     if (searchTerm) {
       const q = searchTerm.toLowerCase();
       const match =
@@ -22,94 +22,64 @@ export default function TransactionStream({ txns, onSelectTxn }) {
     if (filter === "fraud") return t.risk_score >= 60;
     if (filter === "critical") return t.risk_score >= 80;
     if (filter === "upi") return t.rail?.includes("UPI");
-    if (filter === "high_val") return Number(t.amount) >= 100000;
     return true;
   });
 
   return (
-    <div className="card-clean overflow-hidden flex flex-col h-full">
-      {/* Top Filter Bar */}
-      <div className="p-4 border-b border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-semibold text-white m-0">
-            Real-Time Transaction Ledger
-          </h2>
-          <p className="text-xs text-slate-400 m-0 mt-0.5">
-            Streaming UPI, IMPS, and RTGS payment events with sub-50ms risk scoring.
-          </p>
+    <div className="surface-card overflow-hidden">
+      <div className="p-4 sm:p-5 border-b border-zinc-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="relative">
+          <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-2.5" />
+          <input
+            type="text"
+            placeholder="Search name, VPA, remarks, or ID..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="bg-zinc-50 border border-zinc-200 rounded-lg pl-8 pr-3 py-1.5 text-xs text-zinc-900 placeholder-zinc-400 focus:outline-none focus:border-zinc-400 w-full sm:w-64"
+          />
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Search */}
-          <div className="relative">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
-            <input
-              type="text"
-              placeholder="Filter by VPA, Name, ID..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 w-44 sm:w-56"
-            />
-          </div>
-
-          {/* Segmented Filter Pills */}
-          <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-xs">
+        <div className="flex items-center bg-zinc-100 p-0.5 rounded-lg text-xs">
+          {[
+            { id: "all", label: `All (${txns.length})` },
+            { id: "fraud", label: "Flagged" },
+            { id: "critical", label: "Critical (≥80)" },
+            { id: "upi", label: "UPI" }
+          ].map((pill) => (
             <button
-              onClick={() => setFilter("all")}
+              key={pill.id}
+              onClick={() => setFilter(pill.id)}
               className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${
-                filter === "all" ? "bg-slate-800 text-white font-medium" : "text-slate-400 hover:text-white"
+                filter === pill.id
+                  ? "bg-white text-zinc-900 font-medium shadow-xs"
+                  : "text-zinc-600 hover:text-zinc-900"
               }`}
             >
-              All ({txns.length})
+              {pill.label}
             </button>
-            <button
-              onClick={() => setFilter("fraud")}
-              className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${
-                filter === "fraud" ? "bg-slate-800 text-amber-300 font-medium" : "text-slate-400 hover:text-white"
-              }`}
-            >
-              Flagged
-            </button>
-            <button
-              onClick={() => setFilter("critical")}
-              className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${
-                filter === "critical" ? "bg-slate-800 text-red-400 font-medium" : "text-slate-400 hover:text-white"
-              }`}
-            >
-              Critical (&gt;80)
-            </button>
-            <button
-              onClick={() => setFilter("upi")}
-              className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${
-                filter === "upi" ? "bg-slate-800 text-white font-medium" : "text-slate-400 hover:text-white"
-              }`}
-            >
-              UPI Only
-            </button>
-          </div>
+          ))}
         </div>
       </div>
 
-      {/* Ledger Table */}
-      <div className="flex-1 overflow-x-auto overflow-y-auto max-h-[620px]">
+      <div className="overflow-x-auto max-h-[640px]">
         <table className="w-full text-left text-xs border-collapse">
-          <thead className="bg-slate-900/80 sticky top-0 z-10 text-slate-400 uppercase text-[10px] font-semibold tracking-wider border-b border-slate-800">
+          <thead className="bg-zinc-50 sticky top-0 z-10 text-zinc-500 uppercase text-[10px] font-semibold tracking-wider border-b border-zinc-200">
             <tr>
-              <th className="py-2.5 px-4">Transaction ID</th>
-              <th className="py-2.5 px-4">Rail & City</th>
-              <th className="py-2.5 px-4">Originator (Sender)</th>
-              <th className="py-2.5 px-4">Beneficiary</th>
-              <th className="py-2.5 px-4">Amount</th>
-              <th className="py-2.5 px-4">Risk Index</th>
-              <th className="py-2.5 px-4">Mandate</th>
-              <th className="py-2.5 px-4 text-right">Details</th>
+              <th className="py-3 px-4">Transaction</th>
+              <th className="py-3 px-4">Rail / City</th>
+              <th className="py-3 px-4">Sender</th>
+              <th className="py-3 px-4">Receiver</th>
+              <th className="py-3 px-4">Amount</th>
+              <th className="py-3 px-4">Risk</th>
+              <th className="py-3 px-4">Action</th>
+              <th className="py-3 px-4 text-right">Inspect</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-800/60 text-slate-300">
+          <tbody className="divide-y divide-zinc-100">
             {filteredTxns.length === 0 ? (
               <tr>
-                <td colSpan="8" className="text-center py-12 text-slate-500">
-                  No transactions match the selected filter.
+                <td colSpan="8" className="text-center py-12 text-zinc-400">
+                  No transactions match your current filter.
                 </td>
               </tr>
             ) : (
@@ -121,93 +91,86 @@ export default function TransactionStream({ txns, onSelectTxn }) {
                   <tr
                     key={t.txn_id}
                     onClick={() => onSelectTxn(t)}
-                    className="table-row-hover transition-colors cursor-pointer"
+                    className="hover:bg-zinc-50 transition-colors cursor-pointer"
                   >
-                    <td className="py-2.5 px-4 whitespace-nowrap">
-                      <div className="font-mono text-white font-medium">
+                    <td className="py-3 px-4 whitespace-nowrap">
+                      <div className="font-mono text-zinc-900 font-medium">
                         {(t.txn_id || "").slice(-12)}
                       </div>
-                      <div className="text-[10px] text-slate-500 font-mono">
+                      <div className="text-[10px] text-zinc-400 font-mono">
                         {t.timestamp ? new Date(t.timestamp).toLocaleTimeString("en-IN", { hour12: false }) : ""}
                       </div>
                     </td>
 
-                    <td className="py-2.5 px-4 whitespace-nowrap">
-                      <span className="text-[10px] font-mono font-medium px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700/60 text-slate-300">
+                    <td className="py-3 px-4 whitespace-nowrap">
+                      <span className="text-[10px] font-mono font-medium px-1.5 py-0.5 rounded bg-zinc-100 border border-zinc-200 text-zinc-700">
                         {t.rail}
                       </span>
-                      <span className="text-[11px] text-slate-400 block mt-0.5">
-                        {t.city}
-                      </span>
+                      <span className="text-[11px] text-zinc-500 block mt-0.5">{t.city}</span>
                     </td>
 
-                    <td className="py-2.5 px-4">
-                      <div className="font-medium text-white">{t.sender_name}</div>
-                      <div className="text-[11px] text-indigo-400 font-mono truncate max-w-[140px]">{t.sender_vpa}</div>
-                      <div className="text-[10px] text-slate-500">{t.sender_bank}</div>
+                    <td className="py-3 px-4">
+                      <div className="font-medium text-zinc-900">{t.sender_name}</div>
+                      <div className="text-[11px] text-zinc-500 font-mono truncate max-w-[140px]">
+                        {t.sender_vpa}
+                      </div>
                     </td>
 
-                    <td className="py-2.5 px-4">
-                      <div className="font-medium text-white">{t.receiver_name}</div>
-                      <div className="text-[11px] text-slate-400 font-mono truncate max-w-[140px]">{t.receiver_vpa}</div>
-                      <div className="text-[10px] text-slate-500">{t.receiver_bank}</div>
+                    <td className="py-3 px-4">
+                      <div className="font-medium text-zinc-900">{t.receiver_name}</div>
+                      <div className="text-[11px] text-zinc-500 font-mono truncate max-w-[140px]">
+                        {t.receiver_vpa}
+                      </div>
                     </td>
 
-                    <td className="py-2.5 px-4 whitespace-nowrap">
-                      <div className="font-mono font-bold text-white">
+                    <td className="py-3 px-4 whitespace-nowrap">
+                      <div className="font-mono font-semibold text-zinc-900 tabular-nums">
                         {formatINR(t.amount)}
                       </div>
                       {t.remarks && (
-                        <div className="text-[10px] text-slate-500 truncate max-w-[130px]" title={t.remarks}>
+                        <div className="text-[10px] text-zinc-400 truncate max-w-[140px]" title={t.remarks}>
                           {t.remarks}
                         </div>
                       )}
                     </td>
 
-                    <td className="py-2.5 px-4 whitespace-nowrap">
-                      <div className="flex items-center gap-1.5">
-                        <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${
+                    <td className="py-3 px-4 whitespace-nowrap">
+                      <span
+                        className={`text-[11px] font-mono font-semibold px-2 py-0.5 rounded border tabular-nums ${
                           isCritical
-                            ? "bg-red-500/10 text-red-400 border-red-500/20"
+                            ? "bg-rose-50 text-rose-700 border-rose-200"
                             : isHigh
-                            ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
-                            : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                        }`}>
-                          {t.risk_score}/100
-                        </span>
-                        <span className="text-[10px] font-medium text-slate-400">
-                          {t.risk_level}
-                        </span>
-                      </div>
+                            ? "bg-amber-50 text-amber-700 border-amber-200"
+                            : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                        }`}
+                      >
+                        {t.risk_score}/100
+                      </span>
                     </td>
 
-                    <td className="py-2.5 px-4">
+                    <td className="py-3 px-4 whitespace-nowrap">
                       {isCritical ? (
-                        <span className="text-[11px] font-medium text-red-400 flex items-center gap-1">
-                          <ShieldAlert className="w-3.5 h-3.5" />
-                          Auto-Lien 1930
+                        <span className="text-[11px] font-medium text-rose-700 inline-flex items-center gap-1">
+                          <ShieldAlert className="w-3.5 h-3.5" /> Auto-Lien 1930
                         </span>
                       ) : isHigh ? (
-                        <span className="text-[11px] font-medium text-amber-400">
-                          Hold & Verify
-                        </span>
+                        <span className="text-[11px] font-medium text-amber-700">Hold & Verify</span>
                       ) : (
-                        <span className="text-[11px] text-slate-400 flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                          Authorized
+                        <span className="text-[11px] text-zinc-500 inline-flex items-center gap-1">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Cleared
                         </span>
                       )}
                     </td>
 
-                    <td className="py-2.5 px-4 text-right whitespace-nowrap">
+                    <td className="py-3 px-4 text-right whitespace-nowrap">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           onSelectTxn(t);
                         }}
-                        className="py-1 px-2.5 rounded bg-slate-800 hover:bg-indigo-600 hover:text-white text-slate-300 text-[11px] font-medium transition-colors cursor-pointer"
+                        className="px-2.5 py-1 rounded-md border border-zinc-200 bg-white hover:bg-zinc-900 hover:text-white text-zinc-700 text-[11px] font-medium transition-colors cursor-pointer"
                       >
-                        Inspect
+                        Explain
                       </button>
                     </td>
                   </tr>
