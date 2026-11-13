@@ -1,227 +1,427 @@
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect, useState, useMemo } from "react";
+import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide, forceX, forceY } from "d3-force";
 import { formatINR } from "../data/mockEngine";
-import { ZoomIn, ZoomOut, RotateCcw, Filter, ShieldAlert } from "lucide-react";
+import { ZoomIn, ZoomOut, RotateCcw, Filter, ShieldAlert, Sparkles, Move } from "lucide-react";
 
 export default function GraphCanvas({ graphData, onSelectNode }) {
+  const containerRef = useRef(null);
   const canvasRef = useRef(null);
+
   const [hoveredNode, setHoveredNode] = useState(null);
-  const [filterHighRisk, setFilterHighRisk] = useState(false);
+  const [filterSuspiciousOnly, setFilterSuspiciousOnly] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
-  const isDragging = useRef(false);
-  const dragStart = useRef({ x: 0, y: 0 });
 
-  const simNodes = useRef([]);
-  const simEdges = useRef([]);
-  const animFrameId = useRef(null);
+  // Dimensions
+  const [dimensions, setDimensions] = useState({ width: 960, height: 560 });
 
+  // Dragging state
+  const isDraggingCanvas = useRef(false);
+  const dragCanvasStart = useRef({ x: 0, y: 0 });
+  const draggedNode = useRef(null);
+
+  // D3 simulation references
+  const simulationRef = useRef(null);
+  const simNodesRef = useRef([]);
+  const simEdgesRef = useRef([]);
+
+  // ResizeObserver to dynamically adapt canvas to viewport width
   useEffect(() => {
-    if (!graphData || !graphData.nodes) return;
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        if (width > 200 && height > 200) {
+          setDimensions({ width: Math.round(width), height: Math.round(height) });
+        }
+      }
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
 
-    const width = 920;
-    const height = 520;
-    const existingMap = new Map(simNodes.current.map((n) => [n.id, n]));
+  // Filter & prepare graph data: Keep graph clean, legible, and uncrowded
+  const { filteredNodes, filteredEdges } = useMemo(() => {
+    if (!graphData || !graphData.nodes || graphData.nodes.length === 0) {
+      return { filteredNodes: [], filteredEdges: [] };
+    }
 
-    simNodes.current = graphData.nodes.map((node, i) => {
-      const existing = existingMap.get(node.id);
-      const angle = (i / Math.max(graphData.nodes.length, 1)) * 2 * Math.PI;
-      const radius = 150 + (i % 3) * 45;
+    let nodes = [...graphData.nodes];
+    let edges = [...(graphData.edges || [])];
+
+    if (filterSuspiciousOnly) {
+      // Keep only high-risk / circular / mule nodes and their direct connections
+      const suspiciousIds = new Set(
+        nodes
+          .filter(n => n.node_type !== "NORMAL" || (n.total_received > 100000 && n.in_degree >= 2))
+          .map(n => n.id)
+      );
+
+      // Include 1-hop neighbors
+      edges.forEach(e => {
+        const s = typeof e.source === "object" ? e.source.id : e.source;
+        const t = typeof e.target === "object" ? e.target.id : e.target;
+        if (suspiciousIds.has(s) || suspiciousIds.has(t)) {
+          suspiciousIds.add(s);
+          suspiciousIds.add(t);
+        }
+      });
+
+      nodes = nodes.filter(n => suspiciousIds.has(n.id));
+      edges = edges.filter(e => {
+        const s = typeof e.source === "object" ? e.source.id : e.source;
+        const t = typeof e.target === "object" ? e.target.id : e.target;
+        return suspiciousIds.has(s) && suspiciousIds.has(t);
+      });
+    } else {
+      // Cap to the top 18 most active nodes so canvas is NEVER crowded
+      if (nodes.length > 18) {
+        const ranked = [...nodes].sort((a, b) => {
+          const aPriority = (a.node_type !== "NORMAL" ? 1000 : 0) + (a.total_sent + a.total_received);
+          const bPriority = (b.node_type !== "NORMAL" ? 1000 : 0) + (b.total_sent + b.total_received);
+          return bPriority - aPriority;
+        }).slice(0, 18);
+
+        const activeIds = new Set(ranked.map(n => n.id));
+        nodes = ranked;
+        edges = edges.filter(e => {
+          const s = typeof e.source === "object" ? e.source.id : e.source;
+          const t = typeof e.target === "object" ? e.target.id : e.target;
+          return activeIds.has(s) && activeIds.has(t);
+        });
+      }
+    }
+
+    return { filteredNodes: nodes, filteredEdges: edges };
+  }, [graphData, filterSuspiciousOnly]);
+
+  // Initialize and run D3 Force Simulation with strict collision prevention
+  useEffect(() => {
+    if (filteredNodes.length === 0) return;
+
+    const { width, height } = dimensions;
+    const existingNodeMap = new Map(simNodesRef.current.map(n => [n.id, n]));
+    const pad = 60;
+
+    // Map nodes with safe initial coordinates in a gentle radial cluster
+    const nodes = filteredNodes.map((n, i) => {
+      const existing = existingNodeMap.get(n.id);
+      const angle = (i / filteredNodes.length) * 2 * Math.PI;
+      const dist = 110 + (i % 3) * 35;
+
+      const isCircular = n.node_type === "CIRCULAR_LAUNDERING";
+      const isMule = n.node_type === "MULE_AGGREGATOR";
+      const radius = isCircular ? 24 : isMule ? 22 : 18;
+
+      const isSafeExisting =
+        existing &&
+        typeof existing.x === "number" &&
+        !isNaN(existing.x) &&
+        existing.x > pad &&
+        existing.x < width - pad &&
+        typeof existing.y === "number" &&
+        !isNaN(existing.y) &&
+        existing.y > pad &&
+        existing.y < height - pad;
 
       return {
-        ...node,
-        x: existing ? existing.x : width / 2 + Math.cos(angle) * radius,
-        y: existing ? existing.y : height / 2 + Math.sin(angle) * radius,
+        ...n,
+        radius,
+        x: isSafeExisting ? existing.x : width / 2 + Math.cos(angle) * dist,
+        y: isSafeExisting ? existing.y : height / 2 + Math.sin(angle) * dist,
         vx: 0,
-        vy: 0,
-        radius: node.node_type === "CIRCULAR_LAUNDERING" ? 21 : node.node_type === "MULE_AGGREGATOR" ? 19 : 15
+        vy: 0
       };
     });
 
-    simEdges.current = (graphData.edges || []).map((edge) => ({
-      ...edge,
-      particles: [{ t: Math.random() }]
-    }));
-  }, [graphData]);
+    const validNodeIds = new Set(nodes.map(n => n.id));
 
+    // Map edges, strictly filtering out any links to non-existent nodes
+    const edges = filteredEdges
+      .map(e => ({
+        ...e,
+        source: typeof e.source === "object" ? e.source.id : e.source,
+        target: typeof e.target === "object" ? e.target.id : e.target,
+        particleT: Math.random()
+      }))
+      .filter(e => validNodeIds.has(e.source) && validNodeIds.has(e.target));
+
+    if (simulationRef.current) {
+      simulationRef.current.stop();
+    }
+
+    // Battle-tested D3 force simulation:
+    // 1. forceManyBody: gentle repulsion so nodes don't crowd
+    // 2. forceCollide: STRICT physical boundary guaranteeing zero overlap
+    // 3. forceX & forceY: gentle gravity pulling every node towards center
+    // 4. forceCenter: centers entire cluster
+    // 5. forceLink: springs along edges
+    const sim = forceSimulation(nodes)
+      .force("link", forceLink(edges).id(d => d.id).distance(130).strength(0.45))
+      .force("charge", forceManyBody().strength(-280).distanceMax(450))
+      .force("x", forceX(width / 2).strength(0.06))
+      .force("y", forceY(height / 2).strength(0.06))
+      .force("center", forceCenter(width / 2, height / 2))
+      .force(
+        "collide",
+        forceCollide()
+          .radius(d => d.radius + 36) // 36px buffer guarantees labels & circles NEVER collide
+          .iterations(4)
+      )
+      .alpha(0.8)
+      .alphaDecay(0.028);
+
+    simNodesRef.current = nodes;
+    simEdgesRef.current = edges;
+    simulationRef.current = sim;
+
+    return () => sim.stop();
+  }, [filteredNodes, filteredEdges, dimensions]);
+
+  // Canvas render animation loop
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
+
     let isRunning = true;
+    let animId = null;
 
     const render = () => {
       if (!isRunning) return;
-      const width = canvas.width;
-      const height = canvas.height;
-      const nodes = simNodes.current;
-      const edges = simEdges.current;
 
-      for (let i = 0; i < nodes.length; i++) {
-        for (let j = i + 1; j < nodes.length; j++) {
-          const dx = nodes[j].x - nodes[i].x;
-          const dy = nodes[j].y - nodes[i].y;
-          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-          if (dist < 170) {
-            const force = ((170 - dist) / dist) * 0.04;
-            nodes[i].vx -= dx * force;
-            nodes[i].vy -= dy * force;
-            nodes[j].vx += dx * force;
-            nodes[j].vy += dy * force;
-          }
-        }
-      }
+      const { width, height } = dimensions;
+      const nodes = simNodesRef.current;
+      const edges = simEdgesRef.current;
 
-      const nodeMap = new Map(nodes.map((n) => [n.id, n]));
-      for (const edge of edges) {
-        const u = nodeMap.get(edge.source);
-        const v = nodeMap.get(edge.target);
-        if (u && v) {
-          const dx = v.x - u.x;
-          const dy = v.y - u.y;
-          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-          const force = (dist - 125) * 0.008;
-          u.vx += dx * force;
-          u.vy += dy * force;
-          v.vx -= dx * force;
-          v.vy -= dy * force;
-        }
-      }
-
-      const cx = width / 2;
-      const cy = height / 2;
+      // Soft clamp inside canvas bounds
+      const pad = 50;
       for (const node of nodes) {
-        node.vx += (cx - node.x) * 0.002;
-        node.vy += (cy - node.y) * 0.002;
-        node.vx *= 0.88;
-        node.vy *= 0.88;
-        node.x = Math.max(40, Math.min(width - 40, node.x + node.vx));
-        node.y = Math.max(40, Math.min(height - 40, node.y + node.vy));
+        if (!node.fx) {
+          node.x = Math.max(pad, Math.min(width - pad, node.x));
+          node.y = Math.max(pad, Math.min(height - pad, node.y));
+        }
       }
 
       ctx.clearRect(0, 0, width, height);
       ctx.save();
+
+      // Pan & Zoom transform
       ctx.translate(pan.x + width / 2, pan.y + height / 2);
       ctx.scale(zoom, zoom);
       ctx.translate(-width / 2, -height / 2);
 
-      // Edges
+      const nodeMap = new Map(nodes.map(n => [n.id, n]));
+
+      // 1. Draw Edges
       for (const edge of edges) {
-        const u = nodeMap.get(edge.source);
-        const v = nodeMap.get(edge.target);
+        const u = typeof edge.source === "object" ? edge.source : nodeMap.get(edge.source);
+        const v = typeof edge.target === "object" ? edge.target : nodeMap.get(edge.target);
         if (!u || !v) continue;
 
         const isRisk = u.node_type !== "NORMAL" || v.node_type !== "NORMAL";
-        if (filterHighRisk && !isRisk) continue;
 
+        // Line
         ctx.beginPath();
         ctx.moveTo(u.x, u.y);
         ctx.lineTo(v.x, v.y);
         ctx.strokeStyle = isRisk ? "rgba(225, 29, 72, 0.45)" : "rgba(161, 161, 170, 0.45)";
-        ctx.lineWidth = isRisk ? 2 : 1.2;
+        ctx.lineWidth = isRisk ? 2.2 : 1.2;
         ctx.stroke();
 
         // Arrowhead
         const angle = Math.atan2(v.y - u.y, v.x - u.x);
-        const dist = v.radius + 5;
-        const ax = v.x - Math.cos(angle) * dist;
-        const ay = v.y - Math.sin(angle) * dist;
+        const arrowDist = v.radius + 6;
+        const ax = v.x - Math.cos(angle) * arrowDist;
+        const ay = v.y - Math.sin(angle) * arrowDist;
+
         ctx.beginPath();
         ctx.moveTo(ax, ay);
-        ctx.lineTo(ax - 7 * Math.cos(angle - Math.PI / 6), ay - 7 * Math.sin(angle - Math.PI / 6));
-        ctx.lineTo(ax - 7 * Math.cos(angle + Math.PI / 6), ay - 7 * Math.sin(angle + Math.PI / 6));
+        ctx.lineTo(ax - 8 * Math.cos(angle - Math.PI / 6), ay - 8 * Math.sin(angle - Math.PI / 6));
+        ctx.lineTo(ax - 8 * Math.cos(angle + Math.PI / 6), ay - 8 * Math.sin(angle + Math.PI / 6));
         ctx.closePath();
         ctx.fillStyle = isRisk ? "#e11d48" : "#71717a";
         ctx.fill();
 
-        if (edge.particles) {
-          for (const p of edge.particles) {
-            p.t = (p.t + 0.01) % 1;
-            const px = u.x + (v.x - u.x) * p.t;
-            const py = u.y + (v.y - u.y) * p.t;
-            ctx.beginPath();
-            ctx.arc(px, py, 2.2, 0, Math.PI * 2);
-            ctx.fillStyle = isRisk ? "#e11d48" : "#18181b";
-            ctx.fill();
-          }
+        // Flowing particles along edge
+        if (edge.particleT !== undefined) {
+          edge.particleT = (edge.particleT + 0.008) % 1;
+          const px = u.x + (v.x - u.x) * edge.particleT;
+          const py = u.y + (v.y - u.y) * edge.particleT;
+
+          ctx.beginPath();
+          ctx.arc(px, py, 2.5, 0, Math.PI * 2);
+          ctx.fillStyle = isRisk ? "#e11d48" : "#18181b";
+          ctx.fill();
         }
       }
 
-      // Nodes
+      // 2. Draw Nodes
       for (const node of nodes) {
-        if (filterHighRisk && node.node_type === "NORMAL") continue;
         const isHovered = hoveredNode && hoveredNode.id === node.id;
         const isCircular = node.node_type === "CIRCULAR_LAUNDERING";
         const isMule = node.node_type === "MULE_AGGREGATOR";
 
+        // Outer Focus Ring for Special Nodes
+        if (isCircular || isMule || isHovered) {
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, node.radius + (isHovered ? 6 : 4), 0, Math.PI * 2);
+          ctx.fillStyle = isCircular
+            ? "rgba(147, 51, 234, 0.12)"
+            : isMule
+            ? "rgba(225, 29, 72, 0.12)"
+            : "rgba(24, 24, 27, 0.06)";
+          ctx.fill();
+        }
+
+        // Node Circle
         ctx.beginPath();
         ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
-        ctx.fillStyle = isCircular ? "#f3e8ff" : isMule ? "#ffe4e6" : isHovered ? "#f4f4f5" : "#ffffff";
+        ctx.fillStyle = isCircular ? "#faf5ff" : isMule ? "#fff1f2" : "#ffffff";
         ctx.fill();
-        ctx.lineWidth = isHovered ? 2.5 : 1.5;
-        ctx.strokeStyle = isCircular ? "#9333ea" : isMule ? "#e11d48" : isHovered ? "#18181b" : "#a1a1aa";
+        ctx.lineWidth = isHovered ? 2.5 : isCircular || isMule ? 2 : 1.5;
+        ctx.strokeStyle = isCircular ? "#9333ea" : isMule ? "#e11d48" : isHovered ? "#18181b" : "#d4d4d8";
         ctx.stroke();
 
-        ctx.fillStyle = isCircular ? "#6b21a8" : isMule ? "#9f1239" : "#27272a";
-        ctx.font = "600 9px Inter, sans-serif";
+        // Bank Abbreviation in center
+        ctx.fillStyle = isCircular ? "#7e22ce" : isMule ? "#be123c" : "#18181b";
+        ctx.font = "600 10px Inter, sans-serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         const bankCode = (node.bank || "BANK").split(" ")[0].slice(0, 4).toUpperCase();
         ctx.fillText(bankCode, node.x, node.y);
 
+        // CLEAN LABEL BADGE: Drawn with its own pill background so it NEVER overlaps or blurs!
+        const labelText = node.label ? node.label.split(" ")[0] : node.id.slice(-6);
         ctx.font = "500 10px Inter, sans-serif";
-        ctx.fillStyle = isCircular ? "#7e22ce" : isMule ? "#be123c" : "#52525b";
-        ctx.fillText(node.label ? node.label.split(" ")[0] : node.id, node.x, node.y + node.radius + 12);
+        const textWidth = ctx.measureText(labelText).width;
+        const badgeW = textWidth + 10;
+        const badgeH = 16;
+        const badgeX = node.x - badgeW / 2;
+        const badgeY = node.y + node.radius + 5;
+
+        // Badge pill background
+        ctx.beginPath();
+        ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 4);
+        ctx.fillStyle = isCircular ? "#f3e8ff" : isMule ? "#ffe4e6" : "#ffffff";
+        ctx.fill();
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = isCircular ? "#d8b4fe" : isMule ? "#fecdd3" : "#e4e4e7";
+        ctx.stroke();
+
+        // Badge text
+        ctx.fillStyle = isCircular ? "#6b21a8" : isMule ? "#9f1239" : "#3f3f46";
+        ctx.fillText(labelText, node.x, badgeY + badgeH / 2);
       }
 
       ctx.restore();
-      animFrameId.current = requestAnimationFrame(render);
+      animId = requestAnimationFrame(render);
     };
 
     render();
     return () => {
       isRunning = false;
-      if (animFrameId.current) cancelAnimationFrame(animFrameId.current);
+      if (animId) cancelAnimationFrame(animId);
     };
-  }, [hoveredNode, filterHighRisk, zoom, pan]);
+  }, [dimensions, zoom, pan, hoveredNode]);
+
+  // Mouse event handling: Drag canvas or drag node smoothly
+  const getCanvasMousePos = (e) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    const clientX = e.clientX - rect.left;
+    const clientY = e.clientY - rect.top;
+
+    const worldX = (clientX - pan.x - dimensions.width / 2) / zoom + dimensions.width / 2;
+    const worldY = (clientY - pan.y - dimensions.height / 2) / zoom + dimensions.height / 2;
+    return { clientX, clientY, worldX, worldY };
+  };
+
+  const handleMouseDown = (e) => {
+    const { clientX, clientY, worldX, worldY } = getCanvasMousePos(e);
+    const nodes = simNodesRef.current;
+
+    // Check if clicked on a node to drag it
+    const clickedNode = nodes.find(n => Math.hypot(n.x - worldX, n.y - worldY) <= n.radius + 6);
+
+    if (clickedNode) {
+      draggedNode.current = clickedNode;
+      clickedNode.fx = clickedNode.x;
+      clickedNode.fy = clickedNode.y;
+      if (simulationRef.current) {
+        simulationRef.current.alphaTarget(0.3).restart();
+      }
+    } else {
+      isDraggingCanvas.current = true;
+      dragCanvasStart.current = { x: clientX - pan.x, y: clientY - pan.y };
+    }
+  };
 
   const handleMouseMove = (e) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
+    const { clientX, clientY, worldX, worldY } = getCanvasMousePos(e);
 
-    if (isDragging.current) {
-      setPan({ x: mouseX - dragStart.current.x, y: mouseY - dragStart.current.y });
+    if (draggedNode.current) {
+      draggedNode.current.fx = worldX;
+      draggedNode.current.fy = worldY;
       return;
     }
 
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const worldX = (mouseX * scaleX - pan.x - canvas.width / 2) / zoom + canvas.width / 2;
-    const worldY = (mouseY * scaleY - pan.y - canvas.height / 2) / zoom + canvas.height / 2;
+    if (isDraggingCanvas.current) {
+      setPan({
+        x: clientX - dragCanvasStart.current.x,
+        y: clientY - dragCanvasStart.current.y
+      });
+      return;
+    }
 
-    const found = simNodes.current.find((n) => Math.hypot(n.x - worldX, n.y - worldY) <= n.radius + 5);
+    // Hover detection
+    const nodes = simNodesRef.current;
+    const found = nodes.find(n => Math.hypot(n.x - worldX, n.y - worldY) <= n.radius + 6);
     setHoveredNode(found || null);
+  };
+
+  const handleMouseUp = () => {
+    if (draggedNode.current) {
+      draggedNode.current.fx = null;
+      draggedNode.current.fy = null;
+      draggedNode.current = null;
+      if (simulationRef.current) {
+        simulationRef.current.alphaTarget(0);
+      }
+    }
+    isDraggingCanvas.current = false;
+  };
+
+  const handleResetLayout = () => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+    if (simulationRef.current) {
+      simulationRef.current.alpha(0.8).restart();
+    }
   };
 
   return (
     <div className="surface-card p-5 flex flex-col gap-4">
+      {/* Top Header & Legend */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-zinc-900 m-0">
-            Entity Fund-Flow Graph
+          <h2 className="text-sm font-semibold text-zinc-900 m-0 flex items-center gap-2">
+            <span>AML Entity Fund-Flow Graph</span>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200">
+              D3 Anti-Collision Layout
+            </span>
           </h2>
           <p className="text-xs text-zinc-500 m-0 mt-0.5">
-            {graphData?.nodes?.length || 0} accounts • {graphData?.edges?.length || 0} directed edges •{" "}
-            {graphData?.summary?.circular_cycles_count || 0} circular rings detected
+            {filteredNodes.length} active entities • {filteredEdges.length} directed links • Cleanly spaced
           </p>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
+          {/* Legend */}
           <div className="hidden sm:flex items-center gap-3 text-xs text-zinc-600">
             <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-white border border-zinc-400" /> Normal
+              <span className="w-2.5 h-2.5 rounded-full bg-white border border-zinc-300" /> Normal
             </span>
             <span className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-purple-100 border border-purple-600" /> Circular Loop
@@ -231,28 +431,38 @@ export default function GraphCanvas({ graphData, onSelectNode }) {
             </span>
           </div>
 
+          {/* Action Toolbar */}
           <div className="flex items-center gap-1 bg-zinc-100 rounded-lg p-0.5 border border-zinc-200">
             <button
-              onClick={() => setFilterHighRisk(!filterHighRisk)}
-              className={`p-1.5 rounded cursor-pointer ${
-                filterHighRisk ? "bg-rose-600 text-white" : "text-zinc-600 hover:text-zinc-900"
+              onClick={() => setFilterSuspiciousOnly(!filterSuspiciousOnly)}
+              className={`px-2 py-1 text-xs font-medium rounded flex items-center gap-1 cursor-pointer transition-colors ${
+                filterSuspiciousOnly
+                  ? "bg-rose-600 text-white"
+                  : "text-zinc-600 hover:text-zinc-900"
               }`}
-              title="Toggle Suspicious Nodes Only"
+              title="Show only accounts involved in suspicious activity"
             >
-              <Filter className="w-3.5 h-3.5" />
+              <Filter className="w-3 h-3" />
+              <span>{filterSuspiciousOnly ? "Suspicious Only" : "Filter"}</span>
             </button>
-            <button onClick={() => setZoom((z) => Math.min(z + 0.15, 2.5))} className="p-1.5 text-zinc-600 hover:text-zinc-900 cursor-pointer">
+            <button
+              onClick={() => setZoom(z => Math.min(z + 0.15, 2.2))}
+              className="p-1.5 text-zinc-600 hover:text-zinc-900 cursor-pointer"
+              title="Zoom In"
+            >
               <ZoomIn className="w-3.5 h-3.5" />
             </button>
-            <button onClick={() => setZoom((z) => Math.max(z - 0.15, 0.6))} className="p-1.5 text-zinc-600 hover:text-zinc-900 cursor-pointer">
+            <button
+              onClick={() => setZoom(z => Math.max(z - 0.15, 0.6))}
+              className="p-1.5 text-zinc-600 hover:text-zinc-900 cursor-pointer"
+              title="Zoom Out"
+            >
               <ZoomOut className="w-3.5 h-3.5" />
             </button>
             <button
-              onClick={() => {
-                setZoom(1);
-                setPan({ x: 0, y: 0 });
-              }}
+              onClick={handleResetLayout}
               className="p-1.5 text-zinc-600 hover:text-zinc-900 cursor-pointer"
+              title="Reset Zoom & Pan"
             >
               <RotateCcw className="w-3.5 h-3.5" />
             </button>
@@ -260,53 +470,78 @@ export default function GraphCanvas({ graphData, onSelectNode }) {
         </div>
       </div>
 
-      <div className="relative w-full h-[520px] dot-grid rounded-xl border border-zinc-200 overflow-hidden cursor-grab active:cursor-grabbing">
+      {/* Main Canvas Viewport */}
+      <div
+        ref={containerRef}
+        className="relative w-full h-[540px] dot-grid rounded-xl border border-zinc-200 overflow-hidden cursor-grab active:cursor-grabbing select-none"
+      >
         <canvas
           ref={canvasRef}
-          width={920}
-          height={520}
+          width={dimensions.width}
+          height={dimensions.height}
           className="w-full h-full block"
+          onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
-          onMouseDown={(e) => {
-            const rect = canvasRef.current.getBoundingClientRect();
-            isDragging.current = true;
-            dragStart.current = { x: e.clientX - rect.left - pan.x, y: e.clientY - rect.top - pan.y };
-          }}
-          onMouseUp={() => (isDragging.current = false)}
-          onMouseLeave={() => (isDragging.current = false)}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
           onClick={() => hoveredNode && onSelectNode && onSelectNode(hoveredNode)}
         />
 
+        {/* Tip pill */}
+        <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm px-2.5 py-1 rounded-md border border-zinc-200 text-[11px] text-zinc-500 pointer-events-none flex items-center gap-1.5">
+          <Move className="w-3 h-3 text-zinc-400" />
+          <span>Drag nodes to rearrange • Drag canvas to pan</span>
+        </div>
+
+        {/* Hover Inspector Tooltip */}
         {hoveredNode && (
-          <div className="absolute bottom-4 left-4 bg-white/95 backdrop-blur-sm p-3.5 rounded-xl border border-zinc-200 shadow-lg text-xs max-w-xs pointer-events-none">
+          <div className="absolute bottom-4 left-4 bg-white/95 backdrop-blur-sm p-4 rounded-xl border border-zinc-200 shadow-xl text-xs max-w-xs pointer-events-none animate-in fade-in duration-100">
             <div className="flex items-center justify-between gap-2 mb-2">
-              <span className="font-semibold text-zinc-900">{hoveredNode.label || hoveredNode.id}</span>
-              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200">
+              <span className="font-semibold text-zinc-900 text-sm">
+                {hoveredNode.label || hoveredNode.id}
+              </span>
+              <span
+                className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${
+                  hoveredNode.node_type === "CIRCULAR_LAUNDERING"
+                    ? "bg-purple-50 text-purple-700 border-purple-200"
+                    : hoveredNode.node_type === "MULE_AGGREGATOR"
+                    ? "bg-rose-50 text-rose-700 border-rose-200"
+                    : "bg-zinc-100 text-zinc-700 border-zinc-200"
+                }`}
+              >
                 {hoveredNode.node_type}
               </span>
             </div>
-            <div className="space-y-1 text-zinc-600">
+
+            <div className="space-y-1.5 text-zinc-600">
               <div className="flex justify-between gap-4">
-                <span>VPA</span>
-                <span className="font-mono text-zinc-900">{hoveredNode.vpa || "N/A"}</span>
+                <span>VPA:</span>
+                <span className="font-mono text-zinc-900 font-medium">{hoveredNode.vpa || "N/A"}</span>
               </div>
               <div className="flex justify-between gap-4">
-                <span>Sent / Recv</span>
-                <span className="font-mono text-zinc-900 tabular-nums">
-                  {formatINR(hoveredNode.total_sent)} / {formatINR(hoveredNode.total_received)}
-                </span>
+                <span>Bank:</span>
+                <span className="text-zinc-900">{hoveredNode.bank}</span>
               </div>
               <div className="flex justify-between gap-4">
-                <span>Degree</span>
+                <span>Total Sent:</span>
+                <span className="font-mono text-zinc-900 tabular-nums font-semibold">{formatINR(hoveredNode.total_sent)}</span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span>Total Recv:</span>
+                <span className="font-mono text-emerald-700 tabular-nums font-semibold">{formatINR(hoveredNode.total_received)}</span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span>Connections:</span>
                 <span className="font-mono text-zinc-900">
                   {hoveredNode.in_degree} in • {hoveredNode.out_degree} out
                 </span>
               </div>
             </div>
+
             {hoveredNode.node_type !== "NORMAL" && (
-              <div className="mt-2 pt-2 border-t border-zinc-100 text-[11px] text-rose-700 flex items-center gap-1.5">
+              <div className="mt-2.5 pt-2 border-t border-zinc-100 text-[11px] text-rose-700 font-medium flex items-center gap-1.5">
                 <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
-                <span>Click node to inspect flagged transaction</span>
+                <span>Click to open Explainable AI forensic breakdown</span>
               </div>
             )}
           </div>
