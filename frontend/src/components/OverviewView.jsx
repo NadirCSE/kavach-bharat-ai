@@ -7,6 +7,7 @@ export default function OverviewView({
   fraudAlerts,
   graphSummary,
   accountRisks = [],
+  frozenAccounts = new Set(),
   onSelectTxn,
   onNavigateToTab
 }) {
@@ -266,25 +267,35 @@ export default function OverviewView({
             <p className="text-xs text-zinc-500 m-0 mt-0.5">Highest-risk accounts by behavioral score</p>
           </div>
           <div className="divide-y divide-zinc-100">
-            {accountRisks.slice(0, 5).map((acc) => (
-              <div key={acc.account_id} className="px-5 py-3 flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-xs font-medium text-zinc-900 truncate">{acc.name}</div>
-                  <div className="text-[11px] font-mono text-zinc-500 truncate">{acc.vpa || acc.account_id}</div>
+            {accountRisks.slice(0, 5).map((acc) => {
+              const isFrozen = frozenAccounts.has(acc.account_id) || acc.max_risk_score >= 80;
+              return (
+                <div key={acc.account_id} className="px-5 py-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-xs font-medium text-zinc-900 truncate flex items-center gap-1.5">
+                      <span>{acc.name}</span>
+                      {isFrozen && (
+                        <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-rose-100 text-rose-800 border border-rose-300 font-semibold flex items-center gap-0.5">
+                          🔒 FROZEN
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11px] font-mono text-zinc-500 truncate">{acc.vpa || acc.account_id}</div>
+                  </div>
+                  <span
+                    className={`text-[11px] font-mono font-medium px-2 py-0.5 rounded border tabular-nums shrink-0 ${
+                      isFrozen || acc.max_risk_score >= 80
+                        ? "bg-rose-50 text-rose-700 border-rose-200"
+                        : acc.max_risk_score >= 60
+                        ? "bg-amber-50 text-amber-700 border-amber-200"
+                        : "bg-zinc-100 text-zinc-700 border-zinc-200"
+                    }`}
+                  >
+                    {acc.max_risk_score}/100
+                  </span>
                 </div>
-                <span
-                  className={`text-[11px] font-mono font-medium px-2 py-0.5 rounded border tabular-nums shrink-0 ${
-                    acc.max_risk_score >= 80
-                      ? "bg-rose-50 text-rose-700 border-rose-200"
-                      : acc.max_risk_score >= 60
-                      ? "bg-amber-50 text-amber-700 border-amber-200"
-                      : "bg-zinc-100 text-zinc-700 border-zinc-200"
-                  }`}
-                >
-                  {acc.max_risk_score}/100
-                </span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>

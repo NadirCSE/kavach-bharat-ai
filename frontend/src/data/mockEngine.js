@@ -190,8 +190,8 @@ export function generateRandomNormalTxn(accounts = INITIAL_ACCOUNTS) {
   const others = accounts.filter(a => a.id !== s.id);
   const r = others[Math.floor(Math.random() * others.length)];
 
-  const amount = Math.round((Math.random() * 6800 + 120) * 100) / 100;
-  const rail = amount > 50000 ? "IMPS" : Math.random() < 0.85 ? "UPI" : "IMPS";
+  const amount = Math.round((Math.random() * 3200 + 75) * 100) / 100;
+  const rail = Math.random() < 0.90 ? "UPI" : "IMPS";
 
   const raw = {
     txn_id: `TXN_IN_${Date.now()}_${Math.floor(Math.random() * 900 + 100)}`,

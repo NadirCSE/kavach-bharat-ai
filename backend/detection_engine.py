@@ -73,23 +73,23 @@ class KavachDetectionEngine:
                 }
             }
 
-        # 0. Graph Context: Circular Flow / Mule Hub Boost
+        # 0. Graph Context: Circular Flow / Mule Hub Boost (Precise edge & volume matching)
         if graph_context:
             circular_nodes = graph_context.get("circular_nodes", set())
             mule_nodes = graph_context.get("mule_nodes", set())
-            if sender_acc in circular_nodes or receiver_acc in circular_nodes:
+            if sender_acc in circular_nodes and receiver_acc in circular_nodes:
                 score += 55
                 factors.append({
                     "factor": "Circular Layering Loop (AML Round-Tripping)",
                     "weight": 55,
-                    "description": "Account is actively involved in a closed topological cycle (A -> B -> C -> A) designed to obfuscate crime proceeds."
+                    "description": "Both sender and receiver participate in an active closed topological cycle (A -> B -> C -> A) designed to obscure fund provenance."
                 })
-            elif sender_acc in mule_nodes or receiver_acc in mule_nodes:
+            elif receiver_acc in mule_nodes and amount >= 15000.0:
                 score += 45
                 factors.append({
-                    "factor": "Mule Aggregator Node Topology",
+                    "factor": "Mule Aggregator Inflow Volume",
                     "weight": 45,
-                    "description": "Account exhibits high-in-degree fan-in with rapid pass-through drain matching known mule hub networks."
+                    "description": "Recipient account exhibits high-in-degree fan-in with rapid pass-through drain matching known mule aggregation networks."
                 })
 
         # 1. Rule: Sub-₹50,000 Structuring (Section 139A PAN evasion)

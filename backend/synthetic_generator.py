@@ -27,7 +27,7 @@ INDIAN_NAMES = [
     "Manoj Tiwari", "Swati Kulkarni", "Harish Rao", "Divya Menon", "Gaurav Bansal"
 ]
 
-CITIES = ["Mumbai", "Bengaluru", "Delhi NCR", "Hyderabad", "Pune", "Chennai", "Kolkata", "Ahmedabad", "Jaipur", "Lucknow", "Jamtara", "Mewat"]
+CITIES = ["Mumbai", "Bengaluru", "Delhi NCR", "Hyderabad", "Pune", "Chennai", "Kolkata", "Ahmedabad", "Jaipur", "Lucknow"]
 
 ACCOUNT_TYPES = ["Savings", "Salary", "Current", "Jan_Dhan_PMJDY"]
 
@@ -75,14 +75,13 @@ class IndianBankingDataGenerator:
         sender = random.choice(self.accounts)
         receiver = random.choice([a for a in self.accounts if a["account_id"] != sender["account_id"]])
         
-        # Payment rail based on amount
-        amount = round(random.expovariate(1 / 1200) + 50, 2)
-        if amount > 100000:
-            rail = random.choice(["IMPS", "NEFT", "RTGS"])
-        elif amount > 50000:
-            rail = random.choice(["UPI", "IMPS", "NEFT"])
+        # Realistic Indian payment distribution: 95% everyday UPI/IMPS (₹60 - ₹4,200), 5% standard utility/salary
+        if random.random() < 0.95:
+            amount = round(random.uniform(60, 4200), 2)
+            rail = "UPI" if random.random() < 0.90 else "IMPS"
         else:
-            rail = "UPI" if random.random() < 0.85 else "IMPS"
+            amount = round(random.uniform(5000, 24000), 2)
+            rail = random.choice(["IMPS", "NEFT"])
 
         timestamp = datetime.now() - timedelta(minutes=random.randint(1, 180))
 

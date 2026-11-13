@@ -15,8 +15,10 @@ import {
   INITIAL_ACCOUNTS,
   generateRandomNormalTxn,
   generateScenarioTxns,
-  generateI4CTicket
+  generateI4CTicket,
+  formatINR
 } from "./data/mockEngine";
+import { Bell, Volume2, VolumeX, ShieldAlert, Lock, AlertTriangle, CheckCircle2 } from "lucide-react";
 
 const API_BASE = "http://127.0.0.1:8000";
 
@@ -36,6 +38,29 @@ export default function App() {
   const [selectedTxnForStr, setSelectedTxnForStr] = useState(null);
   const [isCustomModalOpen, setIsCustomModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState(null);
+  const [urgentAlert, setUrgentAlert] = useState(null);
+  const [isAlertDropdownOpen, setIsAlertDropdownOpen] = useState(false);
+  const [audioEnabled, setAudioEnabled] = useState(true);
+
+  const playChime = useCallback(() => {
+    if (!audioEnabled) return;
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+      osc.frequency.setValueAtTime(880, ctx.currentTime + 0.12);
+      gain.gain.setValueAtTime(0.12, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.35);
+    } catch {}
+  }, [audioEnabled]);
 
   const showToast = useCallback((msg) => {
     setToastMessage(msg);
@@ -277,7 +302,17 @@ export default function App() {
     });
     const newAlerts = attackTxns.filter((t) => t.risk_score >= 60);
     setFraudAlerts((prev) => [...newAlerts, ...prev]);
-    if (attackTxns.length > 0) setSelectedTxnForXai(attackTxns[0]);
+    if (attackTxns.length > 0) {
+      setSelectedTxnForXai(attackTxns[0]);
+      const topCritical = attackTxns.find(t => t.risk_score >= 80);
+      if (topCritical) {
+        playChime();
+        setUrgentAlert({
+          txn: topCritical,
+          message: `Statutory Lien Dispatched: ₹${formatINR(topCritical.amount)} frozen on ${topCritical.receiver_name} (${topCritical.receiver_account}) under CrPC 91.`
+        });
+      }
+    }
     showToast(`Simulated ${scenarioType}: ${newAlerts.length} high-risk alerts flagged.`);
   };
 
@@ -316,6 +351,11 @@ export default function App() {
         const next = new Set(prev);
         next.add(rec);
         return next;
+      });
+      playChime();
+      setUrgentAlert({
+        txn: customTxn,
+        message: `Statutory Lien CrPC 91 Enforced: ₹${formatINR(customTxn.amount)} frozen on ${customTxn.receiver_name} (${rec}).`
       });
       showToast(`Auto-Lien CrPC 91 Placed: Recipient ${rec} is legally FROZEN.`);
     } else {
@@ -392,19 +432,130 @@ export default function App() {
 
       <div className="flex-1 flex flex-col min-w-0">
         {/* Clean Minimal Page Header */}
-        <div className="bg-white/80 backdrop-blur-sm border-b border-zinc-200 px-5 sm:px-8 py-4 flex items-center justify-between gap-4 sticky top-0 z-30">
+        <div className="bg-white/80 backdrop-blur-sm border-b border-zinc-200 px-5 sm:px-8 py-3.5 flex items-center justify-between gap-4 sticky top-0 z-30">
           <div>
             <h1 className="text-base sm:text-lg font-semibold text-zinc-900 tracking-tight m-0">
               {currentHeader.title}
             </h1>
             <p className="text-xs text-zinc-500 m-0 mt-0.5">{currentHeader.subtitle}</p>
           </div>
-          <div className="hidden sm:flex items-center gap-2 text-[11px] font-mono text-zinc-500">
-            <span className="px-2 py-1 rounded-md bg-zinc-100 border border-zinc-200">
-              Synthetic Data Sandbox
+
+          <div className="flex items-center gap-2.5">
+            {/* Audio Chime Toggle */}
+            <button
+              onClick={() => setAudioEnabled(!audioEnabled)}
+              className={`p-1.5 rounded-lg border text-xs cursor-pointer transition-colors ${
+                audioEnabled
+                  ? "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                  : "border-zinc-200 bg-zinc-100 text-zinc-400"
+              }`}
+              title={audioEnabled ? "Incident Chime Mute" : "Incident Chime Enable"}
+            >
+              {audioEnabled ? <Volume2 className="w-4 h-4 text-emerald-600" /> : <VolumeX className="w-4 h-4" />}
+            </button>
+
+            {/* Incident Alert Bell Button */}
+            <div className="relative">
+              <button
+                onClick={() => setIsAlertDropdownOpen(!isAlertDropdownOpen)}
+                className="relative p-1.5 rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer flex items-center gap-1.5 text-xs font-medium"
+              >
+                <Bell className="w-4 h-4 text-zinc-600" />
+                {fraudAlerts.length > 0 && (
+                  <span className="bg-rose-600 text-white text-[10px] font-mono px-1.5 py-0.2 rounded-full font-bold">
+                    {fraudAlerts.length}
+                  </span>
+                )}
+              </button>
+
+              {/* Incidents Quick Dropdown */}
+              {isAlertDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-80 bg-white border border-zinc-200 rounded-xl shadow-2xl p-3 z-50 text-xs animate-in fade-in duration-100">
+                  <div className="flex items-center justify-between pb-2 border-b border-zinc-100 mb-2">
+                    <span className="font-semibold text-zinc-900">Active Interceptions</span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200 font-semibold">
+                      {fraudAlerts.length} Flagged
+                    </span>
+                  </div>
+
+                  {/* Frozen accounts list */}
+                  {frozenAccounts.size > 0 && (
+                    <div className="mb-2 p-2 rounded-lg bg-rose-50 border border-rose-200">
+                      <div className="text-[11px] font-semibold text-rose-900 flex items-center gap-1 mb-1">
+                        <Lock className="w-3 h-3 text-rose-600" />
+                        <span>{frozenAccounts.size} Accounts Legally Frozen (CrPC 91)</span>
+                      </div>
+                      <div className="space-y-0.5 max-h-24 overflow-y-auto">
+                        {Array.from(frozenAccounts).map((acc) => (
+                          <div key={acc} className="text-[10px] font-mono text-rose-800">
+                            • {acc} (All Inflow/Outflow Blocked)
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {fraudAlerts.length === 0 ? (
+                      <div className="py-4 text-center text-zinc-400 text-xs">No active alerts</div>
+                    ) : (
+                      fraudAlerts.slice(0, 4).map((a) => (
+                        <div
+                          key={a.txn_id}
+                          onClick={() => {
+                            setSelectedTxnForXai(a);
+                            setIsAlertDropdownOpen(false);
+                          }}
+                          className="p-2 rounded-lg hover:bg-zinc-50 border border-transparent hover:border-zinc-200 transition-colors cursor-pointer flex items-center justify-between gap-2"
+                        >
+                          <div className="truncate">
+                            <div className="font-medium text-zinc-900 truncate">{a.sender_name} → {a.receiver_name}</div>
+                            <div className="text-[10px] text-zinc-400">{a.rail} • {formatINR(a.amount)}</div>
+                          </div>
+                          <span className="text-[10px] font-mono font-bold text-rose-600 shrink-0">{a.risk_score} pts</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <span className="hidden sm:inline-block px-2 py-1 rounded-md bg-zinc-100 border border-zinc-200 text-[11px] font-mono text-zinc-500">
+              Synthetic Sandbox
             </span>
           </div>
         </div>
+
+        {/* Emergency Flashing Incident Banner */}
+        {urgentAlert && (
+          <div className="bg-rose-600 text-white px-5 sm:px-8 py-2.5 flex items-center justify-between gap-4 text-xs shadow-md animate-in slide-in-from-top duration-150 z-20">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span className="w-2.5 h-2.5 rounded-full bg-white animate-ping shrink-0" />
+              <span className="font-bold uppercase tracking-wider bg-rose-700 px-2 py-0.5 rounded text-[10px] shrink-0">
+                🚨 Incident Alert
+              </span>
+              <span className="truncate">{urgentAlert.message}</span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => {
+                  setSelectedTxnForXai(urgentAlert.txn);
+                  setUrgentAlert(null);
+                }}
+                className="px-3 py-1 bg-white hover:bg-rose-50 text-rose-800 font-semibold rounded text-xs transition-colors cursor-pointer"
+              >
+                Inspect XAI
+              </button>
+              <button
+                onClick={() => setUrgentAlert(null)}
+                className="p-1 text-rose-200 hover:text-white cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
 
         <main className="flex-1 p-5 sm:p-8 max-w-[1440px] w-full mx-auto">
           {toastMessage && (
@@ -422,6 +573,7 @@ export default function App() {
               fraudAlerts={fraudAlerts}
               graphSummary={graphData?.summary}
               accountRisks={accountRisks}
+              frozenAccounts={frozenAccounts}
               onSelectTxn={(t) => setSelectedTxnForXai(t)}
               onNavigateToTab={(tab) => setActiveTab(tab)}
             />
