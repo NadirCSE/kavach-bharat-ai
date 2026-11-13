@@ -138,7 +138,18 @@ class KavachDetectionEngine:
                 "description": f"Rapid liquidation via RTGS (₹{amount:,.2f}) exceeding standard baseline."
             })
 
-        # 6. ML Anomaly Scoring (Isolation Forest)
+        # 6. Rule: Rapid Fan-Out Dispersal to Freshly Issued / Dormant Accounts
+        fan_out_nodes = (graph_context or {}).get("fan_out_nodes", set())
+        is_dispersal = sender_acc in fan_out_nodes or txn.get("is_new_account", False) or "payout" in remarks or "disbursement" in remarks or "bonus" in remarks
+        if sender_acc in fan_out_nodes or (len(recent_txns) >= 3 and is_dispersal):
+            score += 38
+            factors.append({
+                "factor": "Rapid Fan-Out Dispersal to Fresh Accounts",
+                "weight": 38,
+                "description": "Source entity is fanning out rapid burst disbursements into newly provisioned accounts (Syndicate Dispersal Ring)."
+            })
+
+        # 7. ML Anomaly Scoring (Isolation Forest)
         try:
             feat_vector = np.array([[min(amount, 1000000), 1 if rail == "UPI" else 0, 0, len(recent_txns)]])
             ml_anomaly = self.iso_forest.decision_function(feat_vector)[0]

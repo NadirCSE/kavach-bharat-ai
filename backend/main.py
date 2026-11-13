@@ -49,10 +49,13 @@ def _get_current_graph_context():
         circular_nodes.update(c)
     mules = graph_engine.detect_mule_hubs()
     mule_nodes = {m["account_id"] for m in mules if m.get("is_suspected_mule")}
+    fan_outs = graph_engine.detect_fan_out_dispersal()
+    fan_out_nodes = {f["account_id"] for f in fan_outs if f.get("is_suspected_dispersal")}
     frozen_accounts = set(db.get_frozen_account_ids())
     return {
         "circular_nodes": circular_nodes,
         "mule_nodes": mule_nodes,
+        "fan_out_nodes": fan_out_nodes,
         "frozen_accounts": frozen_accounts
     }
 

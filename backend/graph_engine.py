@@ -106,6 +106,27 @@ class IndianFinancialGraphEngine:
                 })
         return mule_candidates
 
+    def detect_fan_out_dispersal(self, min_out_degree: int = 3) -> List[Dict[str, Any]]:
+        """
+        Identify Dispersal / Smurfing Hubs (1 source paying out to many unseasoned accounts).
+        Detects syndicate fan-out where criminal proceeds are dispersed across fresh accounts.
+        """
+        dispersal = []
+        for node in self.graph.nodes:
+            out_deg = self.graph.out_degree(node)
+            in_deg = self.graph.in_degree(node)
+            meta = self.node_metadata.get(node, {})
+            sent = meta.get("total_sent", 0.0)
+            if out_deg >= min_out_degree:
+                dispersal.append({
+                    "account_id": node,
+                    "out_degree": out_deg,
+                    "in_degree": in_deg,
+                    "total_sent": sent,
+                    "is_suspected_dispersal": True
+                })
+        return dispersal
+
     def export_graph_for_visualization(self) -> Dict[str, Any]:
         """
         Export graph into standard D3 / Cytoscape / Vis format for frontend rendering.

@@ -128,6 +128,15 @@ export function evaluateTransactionRules(txn, context = {}) {
     });
   }
 
+  if (remarks.includes("payout") || remarks.includes("disbursement") || remarks.includes("bonus") || txn.is_fan_out) {
+    score += 38;
+    factors.push({
+      factor: "Rapid Fan-Out Dispersal to Fresh Accounts",
+      weight: 38,
+      description: "Source entity is executing high-velocity burst disbursements into unseasoned accounts (Syndicate Dispersal Ring)."
+    });
+  }
+
   const finalScore = Math.min(Math.max(score, 5), 99);
 
   let risk_level = "LOW";
