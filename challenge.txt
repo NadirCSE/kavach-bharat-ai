@@ -1,0 +1,47 @@
+Intelligent Financial Fraud Detection and Anti-Money Laundering System
+Background:
+
+The rapid growth of digital banking, online payments, UPI transactions, mobile wallets, and other financial technologies has significantly increased the volume and complexity of financial transactions. Alongside this growth, financial fraud, identity misuse, suspicious transaction patterns, and money laundering activities have become increasingly sophisticated. Traditional rule-based monitoring systems often struggle to identify complex fraud patterns, detect previously unknown threats, and respond to suspicious activities in real time.
+
+Problem Statement:
+
+Develop an intelligent, AI-powered financial security system capable of detecting fraudulent financial transactions, identifying suspicious activities, and recognizing potential money laundering patterns. The solution should analyse transaction behaviour, identify anomalies, assess financial risk, and generate actionable alerts to support faster and more informed financial security decisions.
+
+Core Objectives:
+
+Fraud Detection: Identify potentially fraudulent transactions using machine learning, artificial intelligence, or other intelligent analytical techniques.
+Anomaly Detection: Detect unusual transaction behaviour, unexpected transaction frequencies, abnormal amounts, and suspicious account activities.
+Anti-Money Laundering (AML): Identify potentially suspicious transaction patterns, including unusual fund transfers, transaction splitting, and circular money movement.
+Risk Assessment: Assign risk scores to transactions or accounts based on detected patterns and relevant indicators.
+Real-Time Monitoring: Analyse incoming transaction data and generate alerts for potentially suspicious activities.
+Explainable AI: Provide understandable explanations for why a transaction or account has been flagged as suspicious.
+Security Dashboard: Develop an intuitive dashboard to display transaction insights, fraud alerts, risk levels, suspicious activity reports, and analytical summaries.
+Expected Solution:
+
+Participants are expected to develop a functional prototype demonstrating how AI can improve financial fraud detection and anti-money laundering monitoring. The system should be capable of processing transaction data, identifying suspicious patterns, classifying potential risks, and presenting meaningful insights through an interactive interface.
+
+Suggested Technical Approaches:
+
+Participants may explore machine learning classification, unsupervised anomaly detection, graph-based transaction analysis, behavioural analytics, predictive modelling, and explainable AI techniques. Suitable technologies, frameworks, and architectures may be selected according to the proposed solution.
+
+Expected Deliverables:
+
+A working prototype of the proposed system.
+AI/ML-based fraud detection or suspicious activity identification functionality.
+Transaction risk scoring and alert generation.
+An interactive dashboard or user interface.
+A brief explanation of the methodology, technology stack, and implementation.
+A demonstration using synthetic, anonymised, or legally accessible financial transaction data.
+Constraints and Considerations:
+
+Participants must not use real customer banking credentials or unauthorised financial data.
+Synthetic, anonymised, or publicly available datasets should be used.
+The solution should consider data privacy, security, scalability, and responsible AI practices.
+Participants should be able to explain the working, limitations, and decision-making process of their solution.
+Expected Impact:
+
+The proposed solution should demonstrate how intelligent technologies can strengthen financial security, reduce fraudulent activities, improve suspicious transaction monitoring, support anti-money laundering efforts, and contribute to a safer and more trustworthy digital financial ecosystem.
+
+Challenge Goal:
+
+Build an intelligent financial security solution that can detect suspicious transactions, identify potential fraud, and help prevent financial crimes through AI-driven analysis and actionable insights.
