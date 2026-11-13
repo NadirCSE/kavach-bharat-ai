@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import Header from "./components/Header";
-import KpiCards from "./components/KpiCards";
-import AttackSimulator from "./components/AttackSimulator";
-import GraphCanvas from "./components/GraphCanvas";
+import OverviewView from "./components/OverviewView";
 import TransactionStream from "./components/TransactionStream";
+import GraphCanvas from "./components/GraphCanvas";
+import SimulateView from "./components/SimulateView";
+import ComplianceView from "./components/ComplianceView";
 import XaiDrawer from "./components/XaiDrawer";
 import StrModal from "./components/StrModal";
 import CustomTxnModal from "./components/CustomTxnModal";
@@ -12,8 +13,7 @@ import {
   INITIAL_ACCOUNTS,
   generateRandomNormalTxn,
   generateScenarioTxns,
-  generateI4CTicket,
-  evaluateTransactionRules
+  generateI4CTicket
 } from "./data/mockEngine";
 
 export default function App() {
@@ -22,34 +22,34 @@ export default function App() {
   const [fraudAlerts, setFraudAlerts] = useState([]);
   const [graphData, setGraphData] = useState({ nodes: [], edges: [], summary: {} });
 
+  const [activeTab, setActiveTab] = useState("overview");
   const [isSimulating, setIsSimulating] = useState(true);
   const [simSpeed, setSimSpeed] = useState(2000);
-  const [activeTab, setActiveTab] = useState("graph");
 
   // Modals & Drawers
   const [selectedTxnForXai, setSelectedTxnForXai] = useState(null);
   const [selectedTxnForStr, setSelectedTxnForStr] = useState(null);
   const [isCustomModalOpen, setIsCustomModalOpen] = useState(false);
-  const [notification, setNotification] = useState(null);
+  const [toastMessage, setToastMessage] = useState(null);
 
   // Initialize seed transactions and graph
   useEffect(() => {
     const seedTxns = [];
-    for (let i = 0; i < 18; i++) {
+    for (let i = 0; i < 22; i++) {
       seedTxns.push(generateRandomNormalTxn(INITIAL_ACCOUNTS));
     }
     setTransactions(seedTxns);
     rebuildGraph(seedTxns, INITIAL_ACCOUNTS);
   }, []);
 
-  // Real-time transaction simulation ticker
+  // Background stream
   useEffect(() => {
     if (!isSimulating) return;
 
     const interval = setInterval(() => {
       const newTxn = generateRandomNormalTxn(accounts);
       setTransactions(prev => {
-        const next = [newTxn, ...prev.slice(0, 99)];
+        const next = [newTxn, ...prev.slice(0, 120)];
         rebuildGraph(next, accounts);
         return next;
       });
@@ -58,11 +58,9 @@ export default function App() {
     return () => clearInterval(interval);
   }, [isSimulating, simSpeed, accounts]);
 
-  // Graph topology builder
   const rebuildGraph = (currentTxns, currentAccounts) => {
     const nodeMap = new Map();
 
-    // Add baseline accounts
     currentAccounts.forEach(acc => {
       nodeMap.set(acc.id, {
         id: acc.id,
@@ -121,7 +119,6 @@ export default function App() {
       rNode.total_received += amt;
       rNode.in_degree += 1;
 
-      // Special node tagging based on scenarios
       if (t.scenario === "CIRCULAR_LAYERING") {
         sNode.node_type = "CIRCULAR_LAUNDERING";
         rNode.node_type = "CIRCULAR_LAUNDERING";
@@ -134,7 +131,6 @@ export default function App() {
         }
       }
 
-      // Aggregate edge weight
       const edgeKey = `${sId}->${rId}`;
       if (edgeMap.has(edgeKey)) {
         const e = edgeMap.get(edgeKey);
@@ -163,7 +159,6 @@ export default function App() {
     });
   };
 
-  // Attack Injection Handler
   const handleSimulateAttack = (scenarioType) => {
     const attackTxns = generateScenarioTxns(scenarioType, accounts);
     setTransactions(prev => {
@@ -175,12 +170,11 @@ export default function App() {
     const newAlerts = attackTxns.filter(t => t.risk_score >= 60);
     setFraudAlerts(prev => [...newAlerts, ...prev]);
 
-    // Open highest risk attack transaction in XAI drawer for instant judge evaluation
     if (attackTxns.length > 0) {
       setSelectedTxnForXai(attackTxns[0]);
     }
 
-    showNotification(`Injected ${scenarioType} Scenario (${attackTxns.length} transactions processed)`);
+    showToast(`Simulation complete: ${scenarioType} flagged in live ledger.`);
   };
 
   const handleInjectCustomTxn = (customTxn) => {
@@ -194,144 +188,93 @@ export default function App() {
       setFraudAlerts(prev => [customTxn, ...prev]);
     }
     setSelectedTxnForXai(customTxn);
-    showNotification(`Custom Transaction Evaluated (Risk: ${customTxn.risk_score}/100)`);
+    showToast(`Evaluated: ${customTxn.txn_id} (Score: ${customTxn.risk_score}/100)`);
   };
 
   const handleDispatch1930 = (txn) => {
     const ticket = generateI4CTicket(txn);
-    showNotification(`Dispatched 1930 Golden Hour Lien Ticket: ${ticket.ticket_id}`);
+    showToast(`I4C 1930 Golden Hour Lien Ticket Dispatched: ${ticket.ticket_id}`);
   };
 
-  const showNotification = (msg) => {
-    setNotification(msg);
-    setTimeout(() => setNotification(null), 3500);
+  const showToast = (msg) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3500);
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
-      {/* Top Header */}
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500/30">
+      {/* Top Professional Header */}
       <Header
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
         isSimulating={isSimulating}
         setIsSimulating={setIsSimulating}
         simSpeed={simSpeed}
         setSimSpeed={setSimSpeed}
         onOpenCustomTxn={() => setIsCustomModalOpen(true)}
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
       />
 
-      {/* Main Dashboard Body */}
-      <main className="flex-1 p-3 sm:p-5 lg:p-6 space-y-4 max-w-[1720px] mx-auto w-full">
-        {/* Toast Notification Banner */}
-        {notification && (
-          <div className="p-3 bg-indigo-600 text-white rounded-xl text-xs font-semibold flex items-center justify-between shadow-xl animate-in slide-in-from-top-2 duration-200">
-            <span>{notification}</span>
-            <button onClick={() => setNotification(null)} className="text-white/80 hover:text-white font-bold ml-4">
-              ✕
-            </button>
+      {/* Main Content Area */}
+      <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-[1600px] mx-auto w-full">
+        {/* Toast Notification */}
+        {toastMessage && (
+          <div className="mb-4 p-3 bg-slate-900 border border-slate-700 text-white rounded-xl text-xs font-medium flex items-center justify-between shadow-lg animate-in slide-in-from-top-2 duration-150">
+            <span>{toastMessage}</span>
+            <button onClick={() => setToastMessage(null)} className="text-slate-400 hover:text-white ml-3">✕</button>
           </div>
         )}
 
-        {/* Top KPIs */}
-        <KpiCards
-          txns={transactions}
-          fraudAlerts={fraudAlerts}
-          graphSummary={graphData?.summary}
-        />
+        {/* View Switcher */}
+        {activeTab === "overview" && (
+          <OverviewView
+            txns={transactions}
+            fraudAlerts={fraudAlerts}
+            graphSummary={graphData?.summary}
+            onSelectTxn={(t) => setSelectedTxnForXai(t)}
+            onNavigateToTab={(tab) => setActiveTab(tab)}
+          />
+        )}
 
-        {/* Attack Simulator Banner */}
-        <AttackSimulator onSimulateAttack={handleSimulateAttack} />
+        {activeTab === "stream" && (
+          <TransactionStream
+            txns={transactions}
+            onSelectTxn={(t) => setSelectedTxnForXai(t)}
+          />
+        )}
 
-        {/* Primary View: Graph or Stream */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-          {/* Main Visualizer (Graph or Table) */}
-          <div className="lg:col-span-8 flex flex-col h-[560px]">
-            {activeTab === "graph" ? (
-              <GraphCanvas
-                graphData={graphData}
-                onSelectNode={(node) => {
-                  const match = transactions.find(t => t.sender_account === node.id || t.receiver_account === node.id);
-                  if (match) setSelectedTxnForXai(match);
-                }}
-              />
-            ) : (
-              <TransactionStream
-                txns={transactions}
-                onSelectTxn={(t) => setSelectedTxnForXai(t)}
-              />
-            )}
+        {activeTab === "graph" && (
+          <div className="h-[650px]">
+            <GraphCanvas
+              graphData={graphData}
+              onSelectNode={(node) => {
+                const match = transactions.find(t => t.sender_account === node.id || t.receiver_account === node.id);
+                if (match) setSelectedTxnForXai(match);
+              }}
+            />
           </div>
+        )}
 
-          {/* Right Column: Live Fraud Alert Feed */}
-          <div className="lg:col-span-4 flex flex-col h-[560px] glass-panel rounded-2xl p-4 border border-slate-800">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
-              <div className="flex items-center gap-2">
-                <span className="flex h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-                <h2 className="text-xs font-bold text-white uppercase tracking-wider m-0">
-                  REAL-TIME FRAUD ALERTS
-                </h2>
-              </div>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-red-950/80 text-red-400 border border-red-800">
-                {fraudAlerts.length} Flagged
-              </span>
-            </div>
+        {activeTab === "simulator" && (
+          <SimulateView onSimulateAttack={handleSimulateAttack} />
+        )}
 
-            <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
-              {fraudAlerts.length === 0 ? (
-                <div className="text-center py-12 text-slate-500 text-xs">
-                  <p>No critical threats flagged currently.</p>
-                  <p className="text-[11px] text-slate-600 mt-1">
-                    Use the Attack Simulator above to inject real-world Indian fraud vectors.
-                  </p>
-                </div>
-              ) : (
-                fraudAlerts.slice(0, 25).map((alert, idx) => (
-                  <div
-                    key={`${alert.txn_id}-${idx}`}
-                    onClick={() => setSelectedTxnForXai(alert)}
-                    className="p-3 rounded-xl bg-slate-900/90 border border-red-900/40 hover:border-red-500/60 transition-all cursor-pointer group"
-                  >
-                    <div className="flex items-start justify-between gap-1 mb-1.5">
-                      <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-red-950/90 text-red-300 border border-red-800/80 font-mono">
-                        SCORE {alert.risk_score}
-                      </span>
-                      <span className="text-[10px] text-slate-500 font-mono">
-                        {alert.timestamp ? new Date(alert.timestamp).toLocaleTimeString("en-IN", { hour12: false }) : ""}
-                      </span>
-                    </div>
-
-                    <div className="text-xs font-bold text-white group-hover:text-red-400 transition-colors">
-                      {alert.sender_name} ➔ {alert.receiver_name}
-                    </div>
-
-                    <div className="text-[11px] text-slate-400 mt-0.5 flex items-center justify-between">
-                      <span className="font-mono text-red-300 font-semibold">
-                        ₹{Number(alert.amount).toLocaleString("en-IN")}
-                      </span>
-                      <span className="font-mono text-[10px] text-indigo-400">
-                        {alert.rail}
-                      </span>
-                    </div>
-
-                    <p className="text-[10px] text-slate-400 mt-1.5 line-clamp-2 m-0 border-t border-slate-800/80 pt-1.5">
-                      {alert.explainability?.summary_en || alert.remarks}
-                    </p>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
+        {activeTab === "compliance" && (
+          <ComplianceView
+            fraudAlerts={fraudAlerts}
+            onSelectTxn={(t) => setSelectedTxnForXai(t)}
+            onOpenStrModal={(t) => setSelectedTxnForStr(t)}
+          />
+        )}
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-slate-900 bg-slate-950/90 py-3 px-6 text-center text-xs text-slate-500">
+      <footer className="border-t border-slate-900 bg-slate-950/80 py-4 px-6 text-center text-xs text-slate-500">
         <p className="m-0">
-          Kavach-Bharat AI (कवच) • Built for Intelligent Financial Fraud Detection & AML System Challenge • NPCI, RBI & FIU-IND Compliant
+          Kavach (कवच) • Intelligent Financial Fraud Detection & Anti-Money Laundering System • NPCI, RBI & FIU-IND Compliant
         </p>
       </footer>
 
-      {/* Modals & Drawers */}
+      {/* Drawers and Modals */}
       {selectedTxnForXai && (
         <XaiDrawer
           txn={selectedTxnForXai}

@@ -13,6 +13,7 @@ from synthetic_generator import IndianBankingDataGenerator
 from detection_engine import KavachDetectionEngine
 from graph_engine import IndianFinancialGraphEngine
 from compliance import IndianComplianceReporting
+from database import db
 
 app = FastAPI(
     title="Kavach-Bharat AI (कवच)",
@@ -34,6 +35,10 @@ generator = IndianBankingDataGenerator()
 detector = KavachDetectionEngine()
 graph_engine = IndianFinancialGraphEngine()
 
+# Seed accounts into DB
+for acc in generator.accounts:
+    db.save_account(acc)
+
 # In-memory storage for evaluated transactions
 transaction_feed: List[Dict[str, Any]] = []
 fraud_alerts: List[Dict[str, Any]] = []
@@ -45,6 +50,7 @@ for _ in range(25):
     graph_engine.add_transaction(txn)
     merged = {**txn, **eval_res}
     transaction_feed.append(merged)
+    db.save_transaction(merged)
 
 
 class TransactionPayload(BaseModel):
@@ -120,6 +126,7 @@ def evaluate_transaction_endpoint(payload: TransactionPayload):
 
     record = {**txn_dict, **eval_res}
     transaction_feed.append(record)
+    db.save_transaction(record)
 
     if eval_res["risk_score"] >= 60:
         fraud_alerts.append(record)
@@ -147,6 +154,7 @@ def simulate_attack(scenario_type: str):
         eval_res = detector.evaluate_transaction(txn, ctx)
         merged = {**txn, **eval_res}
         transaction_feed.append(merged)
+        db.save_transaction(merged)
         if eval_res["risk_score"] >= 60:
             fraud_alerts.append(merged)
         evaluated_txns.append(merged)

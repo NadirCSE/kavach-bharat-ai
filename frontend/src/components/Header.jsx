@@ -1,7 +1,15 @@
 import React, { useState, useEffect } from "react";
-import { ShieldAlert, Play, Pause, Zap, Activity, Clock, PlusCircle, ExternalLink, Globe } from "lucide-react";
+import { Shield, LayoutDashboard, ListOrdered, Network, FlaskConical, FileText, Plus, Pause, Play, Database } from "lucide-react";
 
-export default function Header({ isSimulating, setIsSimulating, simSpeed, setSimSpeed, onOpenCustomTxn, activeTab, setActiveTab }) {
+export default function Header({
+  activeTab,
+  setActiveTab,
+  isSimulating,
+  setIsSimulating,
+  simSpeed,
+  setSimSpeed,
+  onOpenCustomTxn
+}) {
   const [time, setTime] = useState("");
 
   useEffect(() => {
@@ -14,98 +22,92 @@ export default function Header({ isSimulating, setIsSimulating, simSpeed, setSim
     return () => clearInterval(interval);
   }, []);
 
+  const navItems = [
+    { id: "overview", label: "Dashboard", icon: LayoutDashboard },
+    { id: "stream", label: "Transactions", icon: ListOrdered },
+    { id: "graph", label: "Network Graph", icon: Network },
+    { id: "simulator", label: "Threat Lab", icon: FlaskConical },
+    { id: "compliance", label: "Regulatory STR", icon: FileText }
+  ];
+
   return (
-    <header className="border-b border-slate-800 bg-slate-950/80 backdrop-blur-md sticky top-0 z-40 px-4 lg:px-8 py-3">
-      <div className="flex flex-col lg:flex-row items-center justify-between gap-4">
-        {/* Left: Branding & Compliance */}
+    <header className="border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-md sticky top-0 z-40 px-4 lg:px-8 py-2.5">
+      <div className="flex items-center justify-between gap-4 max-w-[1600px] mx-auto">
+        {/* Brand identity */}
         <div className="flex items-center gap-3">
-          <div className="relative flex items-center justify-center w-11 h-11 rounded-xl bg-gradient-to-br from-indigo-500 via-indigo-600 to-emerald-500 text-white shadow-lg shadow-indigo-500/20">
-            <ShieldAlert className="w-6 h-6 animate-pulse" />
-            <span className="absolute -top-1 -right-1 flex h-3 w-3">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-            </span>
+          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-indigo-600 text-white shadow-sm">
+            <Shield className="w-4 h-4" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold tracking-tight text-white m-0 flex items-center gap-2">
-                KAVACH-BHARAT <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-orange-500 to-emerald-400">AI</span>
-                <span className="text-xs px-2 py-0.5 rounded-full font-mono font-medium bg-indigo-900/60 text-indigo-300 border border-indigo-700/50">
-                  कवच 2.4
-                </span>
-              </h1>
+              <span className="font-semibold text-white tracking-tight text-sm">
+                Kavach
+              </span>
+              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 border border-slate-700/60">
+                v2.4
+              </span>
             </div>
-            <p className="text-xs text-slate-400 m-0 flex items-center gap-2 mt-0.5">
-              <span>National Financial Fraud & Anti-Money Laundering Defense</span>
-              <span className="text-slate-600">•</span>
-              <span className="text-emerald-400 font-medium">NPCI • RBI • FIU-IND Compliant</span>
+            <p className="text-[11px] text-slate-400 m-0 leading-none mt-0.5 hidden sm:block">
+              Financial Fraud & AML Defense
             </p>
           </div>
         </div>
 
-        {/* Center: Navigation Tabs */}
-        <div className="flex items-center bg-slate-900 p-1 rounded-xl border border-slate-800 text-sm font-medium">
-          <button
-            onClick={() => setActiveTab("graph")}
-            className={`px-4 py-1.5 rounded-lg transition-all flex items-center gap-2 ${
-              activeTab === "graph"
-                ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <Activity className="w-4 h-4" />
-            <span>Money Flow Graph</span>
-          </button>
-          <button
-            onClick={() => setActiveTab("stream")}
-            className={`px-4 py-1.5 rounded-lg transition-all flex items-center gap-2 ${
-              activeTab === "stream"
-                ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <Zap className="w-4 h-4" />
-            <span>Live Transaction Stream</span>
-          </button>
-        </div>
+        {/* Clean Minimalist Nav Tabs */}
+        <nav className="flex items-center bg-slate-900/90 p-1 rounded-xl border border-slate-800 text-xs">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setActiveTab(item.id)}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1.5 cursor-pointer ${
+                  isActive
+                    ? "bg-slate-800 text-white shadow-sm"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+        </nav>
 
-        {/* Right: Controls & Clock */}
-        <div className="flex items-center gap-3">
-          <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900/90 border border-slate-800 text-xs font-mono text-slate-300">
-            <Clock className="w-3.5 h-3.5 text-indigo-400" />
-            <span>{time}</span>
+        {/* Actions & Status */}
+        <div className="flex items-center gap-2.5">
+          {/* DB Indicator */}
+          <div className="hidden xl:flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-[11px] font-mono text-slate-400">
+            <Database className="w-3 h-3 text-emerald-400" />
+            <span>SQLite Active</span>
           </div>
 
-          {/* Simulation Toggle */}
-          <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5">
-            <button
-              onClick={() => setIsSimulating(!isSimulating)}
-              className={`px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                isSimulating
-                  ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                  : "bg-slate-800 text-slate-400 hover:text-slate-200"
-              }`}
-            >
-              {isSimulating ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-              {isSimulating ? "Live Stream ON" : "Stream Paused"}
-            </button>
-            <select
-              value={simSpeed}
-              onChange={(e) => setSimSpeed(Number(e.target.value))}
-              className="bg-transparent text-slate-400 text-xs py-1 px-2 border-l border-slate-800 focus:outline-none cursor-pointer"
-            >
-              <option value={1000} className="bg-slate-900 text-white">1s</option>
-              <option value={2000} className="bg-slate-900 text-white">2s</option>
-              <option value={3000} className="bg-slate-900 text-white">3s</option>
-            </select>
+          {/* Clock */}
+          <div className="hidden lg:block text-[11px] font-mono text-slate-400 px-2 py-1 bg-slate-900/60 rounded border border-slate-800/80">
+            {time}
           </div>
 
-          {/* Custom Txn Injector */}
+          {/* Stream pause/play */}
+          <button
+            onClick={() => setIsSimulating(!isSimulating)}
+            className={`px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors border cursor-pointer ${
+              isSimulating
+                ? "bg-emerald-950/40 border-emerald-800/50 text-emerald-300"
+                : "bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200"
+            }`}
+            title="Toggle Live Stream Simulation"
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${isSimulating ? "bg-emerald-400 animate-pulse" : "bg-slate-500"}`} />
+            <span className="hidden sm:inline">{isSimulating ? "Streaming" : "Paused"}</span>
+          </button>
+
+          {/* Test Txn button */}
           <button
             onClick={onOpenCustomTxn}
-            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-medium flex items-center gap-1.5 shadow-md shadow-indigo-600/20 transition-all cursor-pointer"
+            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-medium flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
           >
-            <PlusCircle className="w-3.5 h-3.5" />
+            <Plus className="w-3.5 h-3.5" />
             <span>Test Txn</span>
           </button>
         </div>
